@@ -1,6 +1,8 @@
 import numpy as np
 
 
+# these funcs implemented using numpy, without tensorflow or torch
+
 def mobius_add(u, v):
     norms_u = np.sum(np.power(u, 2), -1, keepdims=True)
     norms_v = np.sum(np.power(v, 2), -1, keepdims=True)
