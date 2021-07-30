@@ -111,6 +111,7 @@ class PoincareManifold(EuclideanManifold):
         vectors = util_tanh(np.sqrt(self.radius) * vectors_norm) * vectors / (np.sqrt(self.radius) * vectors_norm)
         return vectors
 
+    # 这函数的作用不是很清楚
     def hyperbolic_projection(self, vectors):
         # Projection operation. Need to make sure hyperbolic embeddings are inside the unit ball.
         # vectors_norm = tf.maximum(tf_norm(vectors), self.min_norm)

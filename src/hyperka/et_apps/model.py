@@ -1,6 +1,9 @@
 import gc
 import time
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import tensorflow as tf
 import numpy as np
 from hyperka.et_apps.util import embed_init, glorot, zeros
@@ -8,37 +11,28 @@ from hyperka.hyperbolic.poincare import PoincareManifold
 from hyperka.et_funcs.test_funcs import eval_type_hyperbolic
 
 
-class GCNLayer:
-    def __init__(self,
-                 adj,
-                 input_dim,
-                 output_dim,
-                 layer_id,
-                 poincare,
-                 bias=True,
-                 act=None,
-                 name=""):
+# 这段代码是学姐给的改成torch后的版本
+class GCNLayer(nn.Module):
+    def __init__(self, adj: torch.Tensor, input_dim: int, output_dim: int, layer_id: int, poincare: PoincareManifold,
+                 bias: bool = True, act: nn.Module = None):
+        super().__init__()
         self.poincare = poincare
         self.bias = bias
         self.act = act
         self.adj = adj
-        with tf.compat.v1.variable_scope(name + "_gcn_layer_" + str(layer_id)):
-            self.weight_mat = tf.compat.v1.get_variable("gcn_weights" + str(layer_id),
-                                                        shape=[input_dim, output_dim],
-                                                        initializer=tf.glorot_uniform_initializer(),
-                                                        dtype=tf.float64)
-            if bias:
-                self.bias_vec = tf.compat.v1.get_variable("gcn_bias" + str(layer_id),
-                                                          shape=[1, output_dim],
-                                                          initializer=tf.zeros_initializer(),
-                                                          dtype=tf.float64)
+        self.weight_mat = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+        if bias:
+            self.bias_vec = nn.Parameter(torch.FloatTensor(output_dim))
+        else:
+            self.register_parameter("bias_vec", None)
 
-    def call(self, inputs, drop_rate=0.0):
+    def forward(self, inputs: nn.Embedding, drop_rate: float = 0.0):
         pre_sup_tangent = self.poincare.log_map_zero(inputs)
         if drop_rate > 0.0:
-            pre_sup_tangent = tf.nn.dropout(pre_sup_tangent, rate=drop_rate) * (1 - drop_rate)  # not scaled up
-        output = tf.matmul(pre_sup_tangent, self.weight_mat)
-        output = tf.sparse.sparse_dense_matmul(self.adj, output)
+            pre_sup_tangent = F.dropout(pre_sup_tangent, p=drop_rate) * (1 - drop_rate)  # not scaled up
+        output = torch.mm(pre_sup_tangent, self.weight_mat)
+        # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中
+        output = torch.sparse.mm(self.adj, output)
         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
         if self.bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
@@ -50,8 +44,47 @@ class GCNLayer:
         return output
 
 
+# class GCNLayer:
+#     def __init__(self, adj, input_dim, output_dim, layer_id, poincare, bias=True, act=None, name=""):
+#         self.poincare = poincare
+#         self.bias = bias
+#         self.act = act
+#         self.adj = adj
+#         with tf.compat.v1.variable_scope(name + "_gcn_layer_" + str(layer_id)):
+#             self.weight_mat = tf.compat.v1.get_variable("gcn_weights" + str(layer_id),
+#                                                         shape=[input_dim, output_dim],
+#                                                         initializer=tf.glorot_uniform_initializer(),
+#                                                         dtype=tf.float64)
+#             if bias:
+#                 self.bias_vec = tf.compat.v1.get_variable("gcn_bias" + str(layer_id),
+#                                                           shape=[1, output_dim],
+#                                                           initializer=tf.zeros_initializer(),
+#                                                           dtype=tf.float64)
+#
+#     def call(self, inputs, drop_rate=0.0):
+#         pre_sup_tangent = self.poincare.log_map_zero(inputs)
+#         if drop_rate > 0.0:
+#             pre_sup_tangent = tf.nn.dropout(pre_sup_tangent, rate=drop_rate) * (1 - drop_rate)  # not scaled up
+#         output = tf.matmul(pre_sup_tangent, self.weight_mat)
+#         output = tf.sparse.sparse_dense_matmul(self.adj, output)
+#         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+#         if self.bias:
+#             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
+#             output = self.poincare.mobius_addition(output, bias_vec)
+#             output = self.poincare.hyperbolic_projection(output)
+#         if self.act is not None:
+#             output = self.act(self.poincare.log_map_zero(output))
+#             output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+#         return output
+
+
 class HyperKA:
     def __init__(self, ins_list, onto_list, cross, ins_adj, onto_adj, params):
+        # instance_list和ontology_list的结构如下：
+        # [triples, train_ids_triples, test_ids_triples, total_ents_num, total_props_num, total_triples_num]
+        # cross_seed的结构如下：
+        # [[train_heads_id_list, train_tails_id_list],[test_heads_id_list, test_tails_id_list, test_head_tails_id_list]]
+
         self.ins_ent_num = ins_list[3]
         self.ins_rel_num = ins_list[4]
         self.onto_ent_num = onto_list[3]
@@ -60,30 +93,34 @@ class HyperKA:
         self.ins_entities = ins_list[0].ent_list
         self.onto_entities = onto_list[0].ent_list
 
+        # sup表示训练集
         self.ins_sup_ent1 = [item[0] for item in (ins_list[1])]
         self.ins_sup_ent2 = [item[2] for item in (ins_list[1])]
         self.onto_sup_ent1 = [item[0] for item in (onto_list[1])]
         self.onto_sup_ent2 = [item[2] for item in (onto_list[1])]
 
+        # ref表示测试集
         self.ins_ref_ent1 = [item[0] for item in (ins_list[2])]
         self.ins_ref_ent2 = [item[2] for item in (ins_list[2])]
         self.onto_ref_ent1 = [item[0] for item in (onto_list[2])]
         self.onto_ref_ent2 = [item[2] for item in (onto_list[2])]
 
+        # sup表示训练集
         self.seed_sup_ent1 = cross[0][0]
         self.seed_sup_ent2 = cross[0][1]
         self.seed_links = list()
         for i in range(len(self.seed_sup_ent1)):
             self.seed_links.append((self.seed_sup_ent1[i], self.seed_sup_ent2[i]))
-        print("# seed associations:", len(self.seed_links))
+        print("# seed associations len:", len(self.seed_links))
         self.seed_link_set = set(self.seed_links)
 
+        # ref表示测试集
         self.ref_ent1 = cross[1][0]
         self.ref_ent2 = cross[1][1]
         self.ref_links = list()
         for i in range(len(self.ref_ent1)):
             self.ref_links.append((self.ref_ent1[i], self.ref_ent2[i]))
-        print("# ref associations:", len(self.ref_links))
+        print("# ref associations len:", len(self.ref_links))
 
         self.all_ref_type = cross[1][2]
 
@@ -92,7 +129,7 @@ class HyperKA:
 
         self.ins_adj_mat = tf.SparseTensor(indices=ins_adj[0], values=ins_adj[1], dense_shape=ins_adj[2])
         self.onto_adj_mat = tf.SparseTensor(indices=onto_adj[0], values=onto_adj[1], dense_shape=onto_adj[2])
-        self.activation = tf.tanh
+        self.activation = tf.tanh  # 激活函数
         self.ins_layers = list()
         self.onto_layers = list()
         self.ins_output = list()
@@ -110,13 +147,15 @@ class HyperKA:
 
         tf.global_variables_initializer().run(session=self.session)
 
+    # 图卷积
     def _graph_convolution(self):
         self.ins_output = list()  # reset
         self.onto_output = list()
         # ************************* instance gnn ***************************
         # In this case, we assume that the initialized embeddings are in the hyperbolic space.
         ins_output_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
-        # ins_output_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_ent_embeddings))
+        # ins_output_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_ent_embeddings))
         self.ins_output.append(ins_output_embeddings)
         for i in range(self.ins_layer_num):
             activation = self.activation
@@ -129,10 +168,12 @@ class HyperKA:
             ins_output_embeddings = self.poincare.mobius_addition(ins_output_embeddings, self.ins_output[-1])
             ins_output_embeddings = self.poincare.hyperbolic_projection(ins_output_embeddings)
             self.ins_output.append(ins_output_embeddings)
+
         # ************************* ontology gnn ***************************
         # In this case, we assume that the initialized embeddings are in the hyperbolic space.
         onto_output_embeddings = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
-        # onto_output_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_ent_embeddings))
+        # onto_output_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_ent_embeddings))
         self.onto_output.append(onto_output_embeddings)
         for i in range(self.onto_layer_num):
             activation = self.activation
@@ -146,6 +187,7 @@ class HyperKA:
             onto_output_embeddings = self.poincare.hyperbolic_projection(onto_output_embeddings)
             self.onto_output.append(onto_output_embeddings)
 
+    # 生成初始化的各参数矩阵
     def _generate_variables(self):
         with tf.variable_scope('instance_entity' + 'embeddings'):
             self.ins_ent_embeddings = embed_init(self.ins_ent_num, self.params.dim, "ins_ent_embeds",
@@ -175,14 +217,18 @@ class HyperKA:
                                                           shape=[self.params.dim, self.params.onto_dim],
                                                           initializer=tf.initializers.orthogonal(dtype=tf.float64))
 
+    # 黎曼梯度下降，Adam优化
     def _generate_riemannian_optimizer(self, loss):
         opt = tf.train.AdamOptimizer(self.params.learning_rate)
         trainable_grad_vars = opt.compute_gradients(loss)
         grad_vars = [(g, v) for g, v in trainable_grad_vars if g is not None]
+        # 计算李曼梯度
         rescaled = [(g * (1. - tf.reshape(tf.norm(v, axis=1), (-1, 1)) ** 2) ** 2 / 4., v) for g, v in grad_vars]
+        # 这里貌似是梯度裁剪
         train_op = opt.apply_gradients(rescaled)
         return train_op
 
+    # 计算triple loss
     def _generate_triple_loss(self, phs, prs, pts, nhs, nrs, nts):
         pos_distance = self.poincare.distance(self.poincare.mobius_addition(phs, prs), pts)
         neg_distance = self.poincare.distance(self.poincare.mobius_addition(nhs, nrs), nts)
@@ -192,7 +238,9 @@ class HyperKA:
         neg_loss = tf.reduce_sum(tf.nn.relu(tf.constant(self.params.neg_triple_margin, dtype=tf.float64) - neg_score))
         return pos_loss + neg_loss
 
+    # 生成triple计算图？
     def _generate_triple_graph(self):
+        # 这里需要理解一下占位符placeholder()是怎么用的
         self.ins_pos_h = tf.placeholder(tf.int32, shape=[None], name="ins_pos_h")
         self.ins_pos_r = tf.placeholder(tf.int32, shape=[None], name="ins_pos_r")
         self.ins_pos_t = tf.placeholder(tf.int32, shape=[None], name="ins_pos_t")
@@ -206,15 +254,20 @@ class HyperKA:
         self.onto_neg_r = tf.placeholder(tf.int32, shape=[None], name="onto_neg_h")
         self.onto_neg_t = tf.placeholder(tf.int32, shape=[None], name="onto_neg_h")
         # ***********************************************************************************
+        # 这一段是不是与_generate_variables中重复了？
         ins_ent_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
         ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
         onto_ent_embeddings = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
         onto_rel_embeddings = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
 
-        # ins_ent_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_ent_embeddings))
-        # ins_rel_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_rel_embeddings))
-        # onto_ent_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_ent_embeddings))
-        # onto_rel_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_rel_embeddings))
+        # ins_ent_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_ent_embeddings))
+        # ins_rel_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.ins_rel_embeddings))
+        # onto_ent_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_ent_embeddings))
+        # onto_rel_embeddings =
+        # self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.onto_rel_embeddings))
 
         ins_phs_embeds = tf.nn.embedding_lookup(ins_ent_embeddings, self.ins_pos_h)
         ins_prs_embeds = tf.nn.embedding_lookup(ins_rel_embeddings, self.ins_pos_r)
@@ -232,9 +285,12 @@ class HyperKA:
         onto_nts_embeds = tf.nn.embedding_lookup(onto_ent_embeddings, self.onto_neg_t)
         self.onto_triple_loss = self._generate_triple_loss(onto_phs_embeds, onto_prs_embeds, onto_pts_embeds,
                                                            onto_nhs_embeds, onto_nrs_embeds, onto_nts_embeds, )
+
         self.triple_loss = self.ins_triple_loss + self.onto_triple_loss
         self.triple_optimizer = self._generate_riemannian_optimizer(self.triple_loss)
 
+    # 生成mapping计算图？
+    # 这里面涉及loss计算的地方可以拆分出来，整合成一个_generate_mapping_loss函数
     def _generate_mapping_graph(self):
         self.cross_pos_left = tf.placeholder(tf.int32, shape=[None], name="cross_pos_left")
         self.cross_pos_right = tf.placeholder(tf.int32, shape=[None], name="cross_pos_right")
@@ -276,6 +332,8 @@ class HyperKA:
         self.mapping_loss = pos_loss + neg_loss
         self.mapping_optimizer = self._generate_riemannian_optimizer(self.mapping_loss)
 
+    # 进行测试
+    # 应该不太重要，没认真看，跳过了
     def test(self):
         t = time.time()
         ins_embeddings = self.ins_output[-1]
@@ -312,4 +370,3 @@ class HyperKA:
 
     def eval_onto_input_embed(self):
         return tf.nn.embedding_lookup(self.onto_ent_embeddings, self.onto_entities).eval(session=self.session)
-

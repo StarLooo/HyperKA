@@ -5,56 +5,69 @@ import hyperka.et_funcs.utils as ut
 from hyperka.et_apps.util import gen_adj
 from hyperka.ea_funcs.train_funcs import find_neighbours_multi
 
-
 g = 1024 * 1024
 
 
+# 根据相应参数初始化模型
 def get_model(folder, kge_model, params):
     print("data folder:", folder)
+    # 用于读取输入的函数
     read_func = ut.read_input
+
     instance_list, ontology_list, cross_seed = read_func(folder)
+    # instance_list和ontology_list的结构如下：
+    # [triples, train_ids_triples, test_ids_triples, total_ents_num, total_props_num, total_triples_num]
+    # cross_seed的结构如下：
+    # [[train_heads_id_list, train_tails_id_list],[test_heads_id_list, test_tails_id_list, test_head_tails_id_list]]
+
     ins_adj = gen_adj(instance_list[3], instance_list[0].triples)
     onto_adj = gen_adj(ontology_list[3], ontology_list[0].triples)
+
     model = kge_model(instance_list, ontology_list, cross_seed, ins_adj, onto_adj, params)
+
     return instance_list[0], ontology_list[0], model
 
 
-def train_k_epochs(model, ins_tris, onto_tris, k, params, trunc_num1, trunc_num2):
-    neighbours4triple1, neighbours4triple2 = dict(), dict()
+# trunc_num的作用不是很明白
+def train_k_epochs(model, ins_triples, onto_triples, k, params, trunc_num1, trunc_num2):
+    neighbours_4_ins_triples, neighbours_4_onto_triples = dict(), dict()
     t1 = time.time()
     if trunc_num1 > 0.1:
         ins_embeds = model.eval_ins_input_embed()
         onto_embeds = model.eval_onto_input_embed()
-        neighbours4triple1 = find_neighbours_multi(ins_embeds, model.ins_entities, trunc_num1, params.nums_threads)
-        neighbours4triple2 = find_neighbours_multi(onto_embeds, model.onto_entities, trunc_num2, params.nums_threads)
+        neighbours_4_ins_triples = find_neighbours_multi(ins_embeds, model.ins_entities, trunc_num1,
+                                                         params.nums_threads)
+        neighbours_4_onto_triples = find_neighbours_multi(onto_embeds, model.onto_entities, trunc_num2,
+                                                          params.nums_threads)
         print("generate nearest-{}-&-{} neighbours: {:.3f} s".format(trunc_num1, trunc_num2, time.time() - t1))
     for i in range(k):
-        loss1, loss2, t2 = train_1epoch(model, ins_tris, onto_tris, params, neighbours4triple1, neighbours4triple2)
-        print("triple_loss = {:.3f}, typing_loss = {:.3f}, time = {:.3f} s".format(loss1, loss2, t2))
+        loss1, loss2, t2 = train_1_epoch(model, ins_triples, onto_triples, params, neighbours_4_ins_triples,
+                                         neighbours_4_onto_triples)
+        print("triple_loss(L1) = {:.3f}, typing_loss(L2) = {:.3f}, time = {:.3f} s".format(loss1, loss2, t2))
 
 
-def train_1epoch(model, ins_tris, onto_tris, params, neighbours1, neighbours2):
+def train_1_epoch(model, ins_triples, onto_triples, params, neighbours1, neighbours2):
     triple_loss = 0
     mapping_loss = 0
     start = time.time()
-    steps = math.ceil(ins_tris.triples_num / params.batch_size)
+    steps = math.ceil(ins_triples.triples_num / params.batch_size)
     link_batch_size = math.ceil(len(model.seed_sup_ent1) / steps)
     for step in range(steps):
-        loss1, t1 = train_triple_1step(model, ins_tris, onto_tris, step, params, neighbours1, neighbours2)
+        loss1, t1 = train_triple_1_step(model, ins_triples, onto_triples, step, params, neighbours1, neighbours2)
         triple_loss += loss1
-        loss2, t2 = train_mapping_1step(model, link_batch_size, params.mapping_neg_nums)
+        loss2, t2 = train_mapping_1_step(model, link_batch_size, params.mapping_neg_nums)
         mapping_loss += loss2
     triple_loss /= steps
     mapping_loss /= steps
-    random.shuffle(ins_tris.triple_list)
-    random.shuffle(onto_tris.triple_list)
+    random.shuffle(ins_triples.triple_list)
+    random.shuffle(onto_triples.triple_list)
     end = time.time()
     return triple_loss, mapping_loss, round(end - start, 2)
 
 
-def train_triple_1step(model, ins_triples, onto_triples, step, params, neighbours1, neighbours2):
+def train_triple_1_step(model, ins_triples, onto_triples, step, params, neighbours1, neighbours2):
     start = time.time()
-    triple_fetches = {"triple_loss": model.triple_loss, "train_op": model.triple_optimizer}
+    triple_fetches = {"triple_loss": model.triple_loss, "train_triple_opt": model.triple_optimizer}
     ins_pos, ins_neg, onto_pos, onto_neg = generate_pos_neg_batch(ins_triples, onto_triples, step,
                                                                   params.batch_size, multi=params.nums_neg,
                                                                   neighbours1=neighbours1, neighbours2=neighbours2)
@@ -77,9 +90,10 @@ def train_triple_1step(model, ins_triples, onto_triples, step, params, neighbour
     return triple_loss, round(end - start, 2)
 
 
-def train_mapping_1step(model, link_batch_size, multi=20):
+# 这里面构造负例的具体方法还没有理清楚
+def train_mapping_1_step(model, link_batch_size, multi=20):
     start = time.time()
-    mapping_fetches = {"mapping_loss": model.mapping_loss, "train_mapping_op": model.mapping_optimizer}
+    mapping_fetches = {"mapping_loss": model.mapping_loss, "train_mapping_opt": model.mapping_optimizer}
     pos_list = random.sample(model.seed_links, link_batch_size)
     pos_entities1 = [pos_link[0] for pos_link in pos_list]
     pos_entities2 = [pos_link[1] for pos_link in pos_list]
@@ -100,6 +114,7 @@ def train_mapping_1step(model, link_batch_size, multi=20):
     return mapping_loss, round(end - start, 2)
 
 
+# 这里的划分有一些边界情况，我看代码的时候没怎么认真思考
 def generate_pos_batch(triples1, triples2, step, batch_size):
     num1 = batch_size
     num2 = int(batch_size / len(triples1) * len(triples2))
@@ -126,33 +141,34 @@ def generate_neg_triples_multi(pos_triples, triples_data, multi, neighbours):
         choice = random.randint(0, 999)
         if choice < 500:
             candidates = neighbours.get(h, entities)
-            h2s = random.sample(candidates, multi)
-            neg_triples.extend([(h2, r, t) for h2 in h2s])
+            neg_samples = random.sample(candidates, multi)
+            neg_triples.extend([(neg_head, r, t) for neg_head in neg_samples])
         elif choice >= 500:
             candidates = neighbours.get(t, entities)
-            t2s = random.sample(candidates, multi)
-            neg_triples.extend([(h, r, t2) for t2 in t2s])
+            neg_samples = random.sample(candidates, multi)
+            neg_triples.extend([(h, r, neg_tail) for neg_tail in neg_samples])
     neg_triples = list(set(neg_triples) - all_triples)
     return neg_triples
 
 
-def generate_neg_triples(pos_triples, triples_data):
-    all_triples = triples_data.triples
-    entities = triples_data.ent_list
-    neg_triples = list()
-    for (h, r, t) in pos_triples:
-        h2, r2, t2 = h, r, t
-        while True:
-            choice = random.randint(0, 999)
-            if choice < 500:
-                h2 = random.sample(entities, 1)[0]
-            elif choice >= 500:
-                t2 = random.sample(entities, 1)[0]
-            if (h2, r2, t2) not in all_triples:
-                break
-        neg_triples.append((h2, r2, t2))
-    assert len(neg_triples) == len(pos_triples)
-    return neg_triples
+# 这个函数应该是generate_neg_triples_multi()函数的简化版本
+# def generate_neg_triples(pos_triples, triples_data):
+#     all_triples = triples_data.triples
+#     entities = triples_data.ent_list
+#     neg_triples = list()
+#     for (h, r, t) in pos_triples:
+#         h2, r2, t2 = h, r, t
+#         while True:
+#             choice = random.randint(0, 999)
+#             if choice < 500:
+#                 h2 = random.sample(entities, 1)[0]
+#             elif choice >= 500:
+#                 t2 = random.sample(entities, 1)[0]
+#             if (h2, r2, t2) not in all_triples:
+#                 break
+#         neg_triples.append((h2, r2, t2))
+#     assert len(neg_triples) == len(pos_triples)
+#     return neg_triples
 
 
 def generate_pos_neg_batch(triples1, triples2, step, batch_size, multi=1, neighbours1=None, neighbours2=None):
@@ -161,9 +177,9 @@ def generate_pos_neg_batch(triples1, triples2, step, batch_size, multi=1, neighb
     neg_triples1 = list()
     neg_triples2 = list()
 
-    multi2 = multi
+    # multi2 = multi
     # multi2 = math.ceil(multi / len(pos_triples1) * len(pos_triples2))
     neg_triples1.extend(generate_neg_triples_multi(pos_triples1, triples1, multi, neighbours1))
-    neg_triples2.extend(generate_neg_triples_multi(pos_triples2, triples2, multi2, neighbours2))
+    neg_triples2.extend(generate_neg_triples_multi(pos_triples2, triples2, multi, neighbours2))
 
     return pos_triples1, neg_triples1, pos_triples2, neg_triples2

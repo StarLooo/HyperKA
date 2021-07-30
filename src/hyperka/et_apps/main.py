@@ -1,5 +1,6 @@
 import argparse
 import ast
+import os
 
 from hyperka.et_apps.model import HyperKA
 from hyperka.et_funcs.train_funcs import get_model, train_k_epochs
@@ -28,18 +29,17 @@ parser.add_argument('--combine', type=ast.literal_eval, default=True)
 parser.add_argument('--ent_top_k', type=list, default=[1, 3, 5, 10])
 parser.add_argument('--nums_threads', type=int, default=8)
 
-
 if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
-    triples1, triples2, model = get_model(args.input, HyperKA, args)
+    os.system("pause")
+    ins_triples, onto_triples, model = get_model(args.input, HyperKA, args)
     iterations = 5
-    trunc_ent_num1 = int(len(model.ins_entities) * (1.0 - args.epsilon4triple))
-    trunc_ent_num2 = int(len(model.onto_entities) * (1.0 - args.epsilon4triple))
-    print("trunc ent num for triples:", trunc_ent_num1, trunc_ent_num2)
+    trunc_ins_num1 = int(len(model.ins_entities) * (1.0 - args.epsilon4triple))
+    trunc_onto_num2 = int(len(model.onto_entities) * (1.0 - args.epsilon4triple))
+    print("trunc ent num for triples:", trunc_ins_num1, trunc_onto_num2)
     for iteration in range(1, args.epochs // iterations + 1):
         print("iteration ", iteration)
-        train_k_epochs(model, triples1, triples2, iterations, args, trunc_ent_num1, trunc_ent_num2)
+        train_k_epochs(model, ins_triples, onto_triples, iterations, args, trunc_ins_num1, trunc_onto_num2)
         h1 = model.test()
     print("stop")
-

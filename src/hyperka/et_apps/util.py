@@ -1,10 +1,11 @@
-import tensorflow as tf
 import numpy as np
 import scipy.sparse as sp
 import time
 import math
+import tensorflow as tf
 
 
+# 初始化嵌入向量
 def embed_init(mat_x, mat_y, name, method='glorot_uniform_initializer', data_type=tf.float64):
     if method == 'glorot_uniform_initializer':
         print("init embeddings using", "glorot_uniform_initializer", "with dim of", mat_x, mat_y)
@@ -47,27 +48,26 @@ def ones(shape, name=None):
     return tf.Variable(initial, name=name)
 
 
-def sparse_to_tuple(sparse_mx):
-    def to_tuple(mx):
-        if not sp.isspmatrix_coo(mx):
-            mx = mx.tocoo()
-        coords = np.vstack((mx.row, mx.col)).transpose()
-        values = mx.data
-        shape = mx.shape
+def sparse_to_tuple(sparse_matrix):
+    def to_tuple(matrix):
+        if not sp.isspmatrix_coo(matrix):
+            matrix = matrix.tocoo()
+        coords = np.vstack((matrix.row, matrix.col)).transpose()
+        values = matrix.data
+        shape = matrix.shape
         return coords, values, shape
 
-    if isinstance(sparse_mx, list):
-        for i in range(len(sparse_mx)):
-            sparse_mx[i] = to_tuple(sparse_mx[i])
+    if isinstance(sparse_matrix, list):
+        for i in range(len(sparse_matrix)):
+            sparse_matrix[i] = to_tuple(sparse_matrix[i])
     else:
-        sparse_mx = to_tuple(sparse_mx)
-        return sparse_mx
+        return to_tuple(sparse_matrix)
 
 
 def normalize_adj(adj):
     """Symmetrically normalize adjacency matrix."""
     adj = sp.coo_matrix(adj)
-    rowsum = np.array(adj.sum(1))
+    rowsum = np.array(adj.sum(axis=1))
     d_inv_sqrt = np.power(rowsum, -0.5).flatten()
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
@@ -80,16 +80,19 @@ def preprocess_adj(adj):
     return sparse_to_tuple(adj_normalized)
 
 
-def no_weighted_adj(total_ent_num, triple_list):
+def no_weighted_adj(total_ent_num, triples):
     start = time.time()
+    # 通过triples中三元组生成邻接表表示的无向图
     edge = dict()
-    for item in triple_list:
+    for item in triples:
         if item[0] not in edge.keys():
             edge[item[0]] = set()
         if item[2] not in edge.keys():
             edge[item[2]] = set()
         edge[item[0]].add(item[2])
         edge[item[2]].add(item[0])
+
+    # 用sp.coo_matrix()函数稀疏化表示
     row = list()
     col = list()
     for i in range(total_ent_num):
@@ -104,13 +107,15 @@ def no_weighted_adj(total_ent_num, triple_list):
     data_len = len(row)
     data = np.ones(data_len)
     one_adj = sp.coo_matrix((data, (row, col)), shape=(total_ent_num, total_ent_num))
+
     one_adj = preprocess_adj(one_adj)
+
     print('generating one-adj costs time: {:.4f}s'.format(time.time() - start))
     return one_adj
 
 
-def gen_adj(total_e_num, triples):
-    one_adj = no_weighted_adj(total_e_num, triples)
+def gen_adj(total_ents_num, triples):
+    one_adj = no_weighted_adj(total_ents_num, triples)
     adj = one_adj
     return adj
 
@@ -131,3 +136,13 @@ def generate_adj_dict(total_e_num, triples):
         weighted_edges[node1] = edges
     assert len(weighted_edges) == adj[2][0]
     return weighted_edges
+
+
+if __name__ == '__main__':
+    # test sparse_to_tuple
+    matrix = [[0, 4, 0, 3], [4, 0, 1, 0], [0, 1, 0, 7], [3, 0, 7, 0]]
+    sparse_matrix = sp.coo_matrix(matrix)
+    res = sparse_to_tuple(sparse_matrix)
+    print(res[0])
+    print(res[1])
+    print(res[2])
