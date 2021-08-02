@@ -1,6 +1,6 @@
-import tensorflow as tf
 import torch
 import numpy as np
+# import tensorflow as tf
 
 PROJ_EPS = 1e-5
 EPS = 1e-15

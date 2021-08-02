@@ -2,50 +2,66 @@ import numpy as np
 import scipy.sparse as sp
 import time
 import math
-import tensorflow as tf
+import torch
+import torch.nn as nn
 
+
+# import tensorflow as tf
 
 # 初始化嵌入向量
-def embed_init(mat_x, mat_y, name, method='glorot_uniform_initializer', data_type=tf.float64):
+def embed_init(mat_x, mat_y, name, method='glorot_uniform_initializer', data_type=torch.float64):
+    # Xavier均匀分布
     if method == 'glorot_uniform_initializer':
         print("init embeddings using", "glorot_uniform_initializer", "with dim of", mat_x, mat_y)
-        embeddings = tf.get_variable(name, shape=[mat_x, mat_y], initializer=tf.glorot_uniform_initializer(),
-                                     dtype=data_type)
+        embeddings = nn.init.xavier_uniform_(
+            tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True))
+        # embeddings = tf.get_variable(name, shape=[mat_x, mat_y], initializer=tf.glorot_uniform_initializer(),
+        #                              dtype=data_type)
+
+    # 截断正态分布
     elif method == 'truncated_normal':
         print("init embeddings using", "truncated_normal", "with dim of", mat_x, mat_y)
-        embeddings = tf.Variable(tf.truncated_normal([mat_x, mat_y], stddev=1.0 / math.sqrt(mat_y), dtype=data_type),
-                                 name=name, dtype=data_type)
+        embeddings = nn.init.trunc_normal_(tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True),
+                                           std=1.0 / math.sqrt(mat_y))
+        # embeddings = tf.Variable(tf.truncated_normal([mat_x, mat_y], stddev=1.0 / math.sqrt(mat_y), dtype=data_type),
+        #                          name=name, dtype=data_type)
+
+    # 均匀分布
     else:
         print("init embeddings using", "random_uniform", "with dim of", mat_x, mat_y)
-        embeddings = tf.get_variable(name=name, dtype=data_type,
-                                     initializer=tf.random_uniform([mat_x, mat_y],
-                                                                   minval=-0.001, maxval=0.001, dtype=data_type))
+        embeddings = nn.init.uniform_(tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True),
+                                      a=-0.001, b=0.001)
+        # embeddings = tf.get_variable(name=name, dtype=data_type,
+        #                              initializer=tf.random_uniform([mat_x, mat_y],
+        #                                                            minval=-0.001, maxval=0.001, dtype=data_type))
+
     return embeddings
 
 
-def uniform(shape, scale=0.05, name=None):
-    """Uniform init."""
-    initial = tf.random_uniform(shape, minval=-scale, maxval=scale, dtype=tf.float64)
-    return tf.Variable(initial, name=name)
-
-
-def glorot(shape, name=None):
-    """Glorot & Bengio (AISTATS 2010) init."""
-    init_range = np.sqrt(6.0 / (shape[0] + shape[1]))
-    initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float64)
-    return tf.Variable(initial, name=name)
-
-
-def zeros(shape, name=None):
-    """All zeros."""
-    initial = tf.zeros(shape, dtype=tf.float64)
-    return tf.Variable(initial, name=name)
-
-
-def ones(shape, name=None):
-    """All ones."""
-    initial = tf.ones(shape, dtype=tf.float64)
-    return tf.Variable(initial, name=name)
+# 这几个函数貌似没有用
+# def uniform(shape, scale=0.05, name=None):
+#     """Uniform init."""
+#     initial = tf.random_uniform(shape, minval=-scale, maxval=scale, dtype=tf.float64)
+#     return tf.Variable(initial, name=name)
+#
+#
+# def glorot(shape, name=None):
+#     """Glorot & Bengio (AISTATS 2010) init."""
+#     init_range = np.sqrt(6.0 / (shape[0] + shape[1]))
+#     initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float64)
+#     return tf.Variable(initial, name=name)
+#
+#
+# def zeros(shape, name=None):
+#     """All zeros."""
+#     initial = tf.zeros(shape, dtype=tf.float64)
+#     return tf.Variable(initial, name=name)
+#
+#
+# def ones(shape, name=None):
+#     """All ones."""
+#     initial = tf.ones(shape, dtype=tf.float64)
+#     return tf.Variable(initial, name=name)
 
 
 def sparse_to_tuple(sparse_matrix):

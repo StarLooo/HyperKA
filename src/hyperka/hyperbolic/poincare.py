@@ -114,12 +114,20 @@ class PoincareManifold(EuclideanManifold):
     # 这函数的作用不是很清楚
     def hyperbolic_projection(self, vectors):
         # Projection operation. Need to make sure hyperbolic embeddings are inside the unit ball.
+
+        # 由于没有在torch找到对应的轮子，所以自己造了一个
+        vectors_norm = torch.maximum(util_norm(vectors), torch.full_like(vectors, self.min_norm))
+        max_norm = self.max_norm / np.sqrt(self.radius)
+        cond = torch.squeeze(vectors_norm < max_norm)
+        projected = vectors / vectors_norm * max_norm
+        return torch.where(condition=cond, self=vectors, other=projected)
+
         # vectors_norm = tf.maximum(tf_norm(vectors), self.min_norm)
         # max_norm = self.max_norm / np.sqrt(self.radius)
         # cond = tf.squeeze(vectors_norm > max_norm)
         # projected = vectors / vectors_norm * max_norm
         # return tf.where(cond, projected, vectors)
-        return tf.clip_by_norm(t=vectors, clip_norm=self.max_norm / np.sqrt(self.radius), axes=[-1])
+        # return tf.clip_by_norm(t=vectors, clip_norm=self.max_norm / np.sqrt(self.radius), axes=[-1])
 
     def square_distance(self, u, v):
         distance = util_atanh(np.sqrt(self.radius) * util_norm(self.mobius_addition(-u, v)))
