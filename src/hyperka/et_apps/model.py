@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 # import tensorflow as tf
 import numpy as np
-from hyperka.et_apps.util import embed_init, glorot, zeros
+# from hyperka.et_apps.util import embed_init, glorot, zeros
 from hyperka.hyperbolic.poincare import PoincareManifold
 from hyperka.et_funcs.test_funcs import eval_type_hyperbolic
 

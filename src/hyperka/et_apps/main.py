@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import argparse
 import ast
 import os
@@ -6,7 +7,7 @@ from hyperka.et_apps.model import HyperKA
 from hyperka.et_funcs.train_funcs import get_model, train_k_epochs
 
 parser = argparse.ArgumentParser(description='HyperKE4TI')
-parser.add_argument('--input', type=str, default='../../../dataset/joie/yago/')  # db
+parser.add_argument('--input', type=str, default='../../../dataset/joie/yago/')  # db的路径
 parser.add_argument('--output', type=str, default='../../../output/results/')
 
 parser.add_argument('--dim', type=int, default=75)
@@ -31,9 +32,14 @@ parser.add_argument('--nums_threads', type=int, default=8)
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print("show the args:")
     print(args)
     os.system("pause")
+
+    print("get model:")
     ins_triples, onto_triples, model = get_model(args.input, HyperKA, args)
+    os.system("pause")
+
     iterations = 5
     trunc_ins_num1 = int(len(model.ins_entities) * (1.0 - args.epsilon4triple))
     trunc_onto_num2 = int(len(model.onto_entities) * (1.0 - args.epsilon4triple))

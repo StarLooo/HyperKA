@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # lxy: I think triples.py needn't to be modified
 # and I add some comments for readability
 
@@ -14,15 +15,15 @@ class Triples:
         # the set of heads
         self.heads = set([triple[0] for triple in self.triple_list])
         # the set properties(relations)
-        self.props = set([triple[1] for triple in self.triple_list])
+        self.rels = set([triple[1] for triple in self.triple_list])
         # the set of tails
         self.tails = set([triple[2] for triple in self.triple_list])
         # the set of entities(= heads U tails)
         self.ents = self.heads | self.tails
 
         # the sorted list of properties
-        self.prop_list = list(self.props)
-        self.prop_list.sort()
+        self.rel_list = list(self.rels)
+        self.rel_list.sort()
 
         # the sorted list of entities
         self.ent_list = list(self.ents)

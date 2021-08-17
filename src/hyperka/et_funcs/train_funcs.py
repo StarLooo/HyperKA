@@ -1,34 +1,41 @@
+# -*- coding: utf-8 -*-
+import os
 import math
 import time
 import random
 import hyperka.et_funcs.utils as ut
-from hyperka.et_apps.util import gen_adj
+from hyperka.et_apps.util import generate_adjacent_graph
 from hyperka.ea_funcs.train_funcs import find_neighbours_multi
 
 g = 1024 * 1024
 
 
-# ¸ù¾İÏàÓ¦²ÎÊı³õÊ¼»¯Ä£ĞÍ
+# æ ¹æ®ç›¸åº”å‚æ•°åˆå§‹åŒ–æ¨¡å‹
 def get_model(folder, kge_model, params):
     print("data folder:", folder)
-    # ÓÃÓÚ¶ÁÈ¡ÊäÈëµÄº¯Êı
+    # ç”¨äºè¯»å–è¾“å…¥çš„å‡½æ•°
     read_func = ut.read_input
+    # insnetå’Œontoçš„ç»“æ„å¦‚ä¸‹ï¼š
+    # [triples, train_ids_triples, test_ids_triples, total_ents_num, total_rels_num, total_triples_num]
+    # instypeçš„ç»“æ„å¦‚ä¸‹ï¼š
+    # [[train_heads_id_list, train_tails_id_list],[test_heads_id_list, test_tails_id_list, test_head_tails_id_
+    print("read_input begin...")
+    insnet, onto, instype = read_func(folder)
+    print("read_input finished\n")
+    os.system("pause")
 
-    instance_list, ontology_list, cross_seed = read_func(folder)
-    # instance_listºÍontology_listµÄ½á¹¹ÈçÏÂ£º
-    # [triples, train_ids_triples, test_ids_triples, total_ents_num, total_props_num, total_triples_num]
-    # cross_seedµÄ½á¹¹ÈçÏÂ£º
-    # [[train_heads_id_list, train_tails_id_list],[test_heads_id_list, test_tails_id_list, test_head_tails_id_list]]
+    print("generate_adjacent_graph begin...")
+    ins_adj = generate_adjacent_graph(total_ents_num=insnet[3], triples=insnet[0].triples)
+    onto_adj = generate_adjacent_graph(total_ents_num=onto[3], triples=onto[0].triples)
+    print("generate_adjacent_graph finished\n")
+    os.system("pause")  # 2021/8/17ä»Šå¤©ä¸‹åˆé‡æ–°çœ‹ä»£ç çœ‹åˆ°äº†è¿™é‡Œ(å¯ä»¥åˆæ³•æ­£ç¡®è¿è¡Œåˆ°æ­¤å¤„)
 
-    ins_adj = gen_adj(instance_list[3], instance_list[0].triples)
-    onto_adj = gen_adj(ontology_list[3], ontology_list[0].triples)
+    model = kge_model(insnet, onto, instype, ins_adj, onto_adj, params)
 
-    model = kge_model(instance_list, ontology_list, cross_seed, ins_adj, onto_adj, params)
-
-    return instance_list[0], ontology_list[0], model
+    return insnet[0], onto[0], model
 
 
-# trunc_numµÄ×÷ÓÃ²»ÊÇºÜÃ÷°×
+# trunc_numçš„ä½œç”¨ä¸æ˜¯å¾ˆæ˜ç™½
 def train_k_epochs(model, ins_triples, onto_triples, k, params, trunc_num1, trunc_num2):
     neighbours_4_ins_triples, neighbours_4_onto_triples = dict(), dict()
     t1 = time.time()
@@ -90,7 +97,7 @@ def train_triple_1_step(model, ins_triples, onto_triples, step, params, neighbou
     return triple_loss, round(end - start, 2)
 
 
-# ÕâÀïÃæ¹¹Ôì¸ºÀıµÄ¾ßÌå·½·¨»¹Ã»ÓĞÀíÇå³ş
+# è¿™é‡Œé¢æ„é€ è´Ÿä¾‹çš„å…·ä½“æ–¹æ³•è¿˜æ²¡æœ‰ç†æ¸…æ¥š
 def train_mapping_1_step(model, link_batch_size, multi=20):
     start = time.time()
     mapping_fetches = {"mapping_loss": model.mapping_loss, "train_mapping_opt": model.mapping_optimizer}
@@ -114,7 +121,7 @@ def train_mapping_1_step(model, link_batch_size, multi=20):
     return mapping_loss, round(end - start, 2)
 
 
-# ÕâÀïµÄ»®·ÖÓĞÒ»Ğ©±ß½çÇé¿ö£¬ÎÒ¿´´úÂëµÄÊ±ºòÃ»ÔõÃ´ÈÏÕæË¼¿¼
+# è¿™é‡Œçš„åˆ’åˆ†æœ‰ä¸€äº›è¾¹ç•Œæƒ…å†µï¼Œæˆ‘çœ‹ä»£ç çš„æ—¶å€™æ²¡æ€ä¹ˆè®¤çœŸæ€è€ƒ
 def generate_pos_batch(triples1, triples2, step, batch_size):
     num1 = batch_size
     num2 = int(batch_size / len(triples1) * len(triples2))
@@ -151,7 +158,7 @@ def generate_neg_triples_multi(pos_triples, triples_data, multi, neighbours):
     return neg_triples
 
 
-# Õâ¸öº¯ÊıÓ¦¸ÃÊÇgenerate_neg_triples_multi()º¯ÊıµÄ¼ò»¯°æ±¾
+# è¿™ä¸ªå‡½æ•°åº”è¯¥æ˜¯generate_neg_triples_multi()å‡½æ•°çš„ç®€åŒ–ç‰ˆæœ¬
 # def generate_neg_triples(pos_triples, triples_data):
 #     all_triples = triples_data.triples
 #     entities = triples_data.ent_list
