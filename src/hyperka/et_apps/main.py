@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description='HyperKE4TI')
 parser.add_argument('--input', type=str, default='../../../dataset/joie/yago/')  # db的路径
 parser.add_argument('--output', type=str, default='../../../output/results/')
 
-parser.add_argument('--dim', type=int, default=75)
+parser.add_argument('--ins_dim', type=int, default=75)
 parser.add_argument('--onto_dim', type=int, default=15)
 parser.add_argument('--ins_layer_num', type=int, default=3)
 parser.add_argument('--onto_layer_num', type=int, default=3)
@@ -34,18 +34,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print("show the args:")
     print(args)
-    os.system("pause")
 
-    print("get model:")
+    print("get model...")
     ins_triples, onto_triples, model = get_model(args.input, HyperKA, args)
-    os.system("pause")
+    print("get model finished\n")
 
     iterations = 5
-    trunc_ins_num1 = int(len(model.ins_entities) * (1.0 - args.epsilon4triple))
-    trunc_onto_num2 = int(len(model.onto_entities) * (1.0 - args.epsilon4triple))
-    print("trunc ent num for triples:", trunc_ins_num1, trunc_onto_num2)
+    truncated_ins_num = int(len(model.ins_ent_list) * (1.0 - args.epsilon4triple))
+    truncated_onto_num = int(len(model.onto_ent_list) * (1.0 - args.epsilon4triple))
+    print("trunc ent num for ins triples:", truncated_ins_num)
+    print("trunc ent num for onto triples:", truncated_onto_num)
     for iteration in range(1, args.epochs // iterations + 1):
         print("iteration ", iteration)
-        train_k_epochs(model, ins_triples, onto_triples, iterations, args, trunc_ins_num1, trunc_onto_num2)
+        train_k_epochs(model, ins_triples, onto_triples, iterations, args, truncated_ins_num, truncated_onto_num)
         h1 = model.test()
+        print("h1:", h1)
     print("stop")

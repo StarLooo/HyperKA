@@ -5,6 +5,8 @@ from hyperka.hyperbolic.util import util_norm, util_tanh, util_atanh
 import util
 import torch
 
+DEBUG = False
+
 
 # modified by lxy
 class PoincareManifold(EuclideanManifold):
@@ -27,9 +29,9 @@ class PoincareManifold(EuclideanManifold):
         changed_sq_u_norm = torch.clip(changed_sq_u_norm, min=0.0, max=self.max_norm)
         changed_sq_v_norm = torch.clip(changed_sq_v_norm, min=0.0, max=self.max_norm)
         changed_sq_dist = torch.sum(torch.pow(u - v, 2), dim=-1, keepdim=True)
-        changed_distance = tf.acosh(
+        changed_distance = torch.acosh(
             1 + self.eps + (changed_sq_dist / ((1 - changed_sq_u_norm) * (1 - changed_sq_v_norm)) * 2))
-        if util.DEBUG:
+        if DEBUG:
             origin_sq_u_norm = tf.reduce_sum(u * u, axis=-1, keepdims=True)
             origin_sq_v_norm = tf.reduce_sum(v * v, axis=-1, keepdims=True)
             origin_sq_u_norm = tf.clip_by_value(origin_sq_u_norm, clip_value_min=0.0, clip_value_max=self.max_norm)
@@ -52,9 +54,9 @@ class PoincareManifold(EuclideanManifold):
 
         changed_numerator = (1 + 2 * changed_inner_product + changed_norms_v) * vectors_u + (
                 1 - changed_norms_u) * vectors_v
-        changed_results = tf.math.divide(changed_numerator, changed_denominator)
+        changed_results = torch.divide(changed_numerator, changed_denominator)
 
-        if util.DEBUG:
+        if DEBUG:
             origin_norms_u = self.radius * tf.reduce_sum(tf.square(vectors_u), -1, keepdims=True)
             origin_norms_v = self.radius * tf.reduce_sum(tf.square(vectors_v), -1, keepdims=True)
             origin_inner_product = self.radius * tf.reduce_sum(vectors_u * vectors_v, -1, keepdims=True)
@@ -79,11 +81,11 @@ class PoincareManifold(EuclideanManifold):
             changed_matrix_norm / changed_vector_norm * util_atanh(
                 np.sqrt(self.radius) * changed_vector_norm)) / changed_matrix_norm * changed_matrix_
         if bias is None:
-            origin_result = self.hyperbolic_projection(changed_result)
+            changed_result = self.hyperbolic_projection(changed_result)
         else:
-            origin_result = self.hyperbolic_projection(self.mobius_addition(changed_result, bias))
+            changed_result = self.hyperbolic_projection(self.mobius_addition(changed_result, bias))
 
-        if util.DEBUG:
+        if DEBUG:
             origin_matrix_ = tf.matmul(vectors, matrix) + self.eps
             origin_matrix_norm = util_norm(origin_matrix_)
             origin_vector_norm = util_norm(vectors)
@@ -95,6 +97,8 @@ class PoincareManifold(EuclideanManifold):
             else:
                 origin_result = self.hyperbolic_projection(self.mobius_addition(origin_result, bias))
             util.judge_change_equal(origin_result, changed_result)
+
+        return changed_result
 
     def log_map_zero(self, vectors):
         # vectors_norm = tf.maximum(tf_norm(vectors), self.min_norm)
@@ -120,7 +124,7 @@ class PoincareManifold(EuclideanManifold):
         max_norm = self.max_norm / np.sqrt(self.radius)
         cond = torch.squeeze(vectors_norm < max_norm)
         projected = vectors / vectors_norm * max_norm
-        return torch.where(condition=cond, self=vectors, other=projected)
+        return torch.where(condition=cond, input=vectors, other=projected)
 
         # vectors_norm = tf.maximum(tf_norm(vectors), self.min_norm)
         # max_norm = self.max_norm / np.sqrt(self.radius)

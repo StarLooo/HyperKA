@@ -1,17 +1,17 @@
 import torch
 import numpy as np
-# import tensorflow as tf
+import tensorflow as tf
 
 PROJ_EPS = 1e-5
 EPS = 1e-15
 MAX_TANH_ARG = 15.0
-DEBUG = True  # define by lxy, switch to debug model
+DEBUG = False  # define by lxy, switch to debug model
 
 
 # add by lxy
 def judge_change_equal(origin_tf_tensor, changed_torch_tensor):
     origin = origin_tf_tensor.numpy()
-    changed = changed_torch_tensor.numpy()
+    changed = changed_torch_tensor.detach().numpy()
     if not np.allclose(origin, changed, atol=1e-3, rtol=1e-3, equal_nan=True):
         print("origin:", origin)
         print("changed:", changed)

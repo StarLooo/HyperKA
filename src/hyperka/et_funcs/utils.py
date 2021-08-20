@@ -140,10 +140,10 @@ def get_input(all_file, train_file, test_file, if_cross=False, ins_ids=None, ont
                 continue
             test_ins_name_set.add(h)
             test_heads_id_list.append(this_head_id)
-            test_heads_id_list.append(this_tail_id)
+            test_tails_id_list.append(this_tail_id)
             test_head_tails_id_list.append(list(test_head_tails_id_dict[this_head_id]))
             # 在测试集中train_heads_id_list[i]对应的实体一定属于train_tails_id_list[i]对应的这个类型
-            assert len(test_heads_id_list) == len(test_heads_id_list)
+            assert len(test_heads_id_list) == len(test_tails_id_list)
         print("# selected test entity types len:", len(test_heads_id_list))
 
         return [[train_heads_id_list, train_tails_id_list],
@@ -218,7 +218,8 @@ def read_input(folder):
         instype = get_input(all_file=folder + "yago_InsType_mini.txt",
                             train_file=folder + "yago_InsType_train.txt",
                             test_file=folder + "yago_InsType_test.txt",
-                            if_cross=True, ins_ids=ins_ids,
+                            if_cross=True,
+                            ins_ids=ins_ids,
                             onto_ids=onto_ids)
 
     # 注意insnet, onto, instype都是list，其内部每个元素含义及其具体结构详见get_input()函数内的注释

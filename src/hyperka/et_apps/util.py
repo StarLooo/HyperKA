@@ -9,27 +9,31 @@ import torch.nn as nn
 # import tensorflow as tf
 
 # 初始化嵌入向量
-def embed_init(mat_x, mat_y, name, method='glorot_uniform_initializer', data_type=torch.float64):
+def embed_init(size, name, method='glorot_uniform_initializer', data_type=torch.float64):
     # Xavier均匀分布
     if method == 'glorot_uniform_initializer':
-        print("init embeddings using", "glorot_uniform_initializer", "with dim of", mat_x, mat_y)
+        print("init embeddings using", "glorot_uniform_initializer", "with size of", size)
+        # TODO: embeddings是否需要requires_grad=True需要确认一下
         embeddings = nn.init.xavier_uniform_(
-            tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True))
+            tensor=torch.empty(size=size, dtype=data_type, requires_grad=True))
         # embeddings = tf.get_variable(name, shape=[mat_x, mat_y], initializer=tf.glorot_uniform_initializer(),
         #                              dtype=data_type)
 
     # 截断正态分布
+    # 文章中实际上貌似没有采用这种初始化方法
     elif method == 'truncated_normal':
-        print("init embeddings using", "truncated_normal", "with dim of", mat_x, mat_y)
-        embeddings = nn.init.trunc_normal_(tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True),
-                                           std=1.0 / math.sqrt(mat_y))
+        print("init embeddings using", "truncated_normal", "with size of", size)
+        # TODO: embeddings是否需要requires_grad=True需要确认一下
+        embeddings = nn.init.trunc_normal_(tensor=torch.empty(size=size, dtype=data_type, requires_grad=True),
+                                           mean=0, std=1.0 / math.sqrt(size[1]))
         # embeddings = tf.Variable(tf.truncated_normal([mat_x, mat_y], stddev=1.0 / math.sqrt(mat_y), dtype=data_type),
         #                          name=name, dtype=data_type)
 
     # 均匀分布
+    # 文章中实际上貌似没有采用这种初始化方法
     else:
-        print("init embeddings using", "random_uniform", "with dim of", mat_x, mat_y)
-        embeddings = nn.init.uniform_(tensor=torch.empty(size=(mat_x, mat_y), dtype=data_type, requires_grad=True),
+        print("init embeddings using", "random_uniform", "with size of", size)
+        embeddings = nn.init.uniform_(tensor=torch.empty(size=size, dtype=data_type, requires_grad=True),
                                       a=-0.001, b=0.001)
         # embeddings = tf.get_variable(name=name, dtype=data_type,
         #                              initializer=tf.random_uniform([mat_x, mat_y],
@@ -81,7 +85,6 @@ def preprocess_adjacent_graph(adjacent_graph):
 # TODO:该函数内部具体如何对图进行稀疏表示以及预处理的部分目前被当成黑箱处理,未来可以仔细研究一下
 def generate_no_weighted_adjacent_graph(total_ent_num, triples):
     start = time.time()
-    # 用邻接表表示图
     # edges中的key是某实体h的id,对应的value是与之相关(关系用r表示)的一系列实体t的id的set,其中(h,r,t)构成一个triples中的三元组
     edges = dict()
     for tripe in triples:
