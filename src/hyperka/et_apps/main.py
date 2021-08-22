@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import argparse
 import ast
+import argparse
 
 from hyperka.et_apps.model import HyperKA
 from hyperka.et_funcs.train_funcs import get_model, train_k_epochs
