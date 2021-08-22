@@ -1,8 +1,6 @@
 import numpy as np
 
 
-# these funcs implemented using numpy, without tensorflow or torch
-
 def mobius_add(u, v):
     norms_u = np.sum(np.power(u, 2), -1, keepdims=True)
     norms_v = np.sum(np.power(v, 2), -1, keepdims=True)
@@ -38,7 +36,7 @@ def compute_hyperbolic_similarity(embeds1, embeds2):
     assert y1 == y2
     dist_vec_list = list()
     for i in range(x1):
-        embed1 = embeds1[i, ]  # <class 'numpy.ndarray'> (y1,)
+        embed1 = embeds1[i,]  # <class 'numpy.ndarray'> (y1,)
         embed1 = np.reshape(embed1, (1, y1))  # (1, y1)
         embed1 = np.repeat(embed1, x2, axis=0)  # (x2, y1)
         dist_vec = compute_hyperbolic_distances(embed1, embeds2)

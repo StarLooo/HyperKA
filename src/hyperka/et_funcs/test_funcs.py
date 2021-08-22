@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import multiprocessing
 
 import gc
@@ -6,6 +7,10 @@ import time
 
 from hyperka.et_funcs.utils import div_list
 from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
+
+'''
+    由于该test_funcs.py文件中并未涉及到tf的内容，所以未作修改，并且也没有仔细理解流程(多线程编程确实之前从未涉及过，看起来比较头大)
+'''
 
 
 def cal_rank_hyperbolic(frags, sub_embed, embed, multi_types_list, top_k, greedy):
@@ -55,12 +60,18 @@ def eval_type_hyperbolic(embed1, embed2, ent_type, top_k, nums_threads, greedy=T
     total_test_num = 0
     total_alignment = set()
 
+    # TODO：这里会报错：
+    #  RuntimeError: Cowardly refusing to serialize non-leaf tensor which requires_grad,
+    #  since autograd does not support crossing process boundaries.
+    #  If you just want to transfer the data, call detach() on the tensor before serializing
+    #  (e.g., putting it on the queue).
     frags = div_list(np.array(range(ref_num)), nums_threads)
     pool = multiprocessing.Pool(processes=len(frags))
     results = list()
     for frag in frags:
         results.append(
-            pool.apply_async(cal_rank_hyperbolic, (frag, embed1[frag, :], embed2, ent_type, top_k, greedy)))
+            pool.apply_async(cal_rank_hyperbolic,
+                             (frag, embed1[frag, :].detach(), embed2.detach(), ent_type, top_k, greedy)))
     pool.close()
     pool.join()
 

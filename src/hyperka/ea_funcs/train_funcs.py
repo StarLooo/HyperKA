@@ -151,6 +151,7 @@ def find_neighbours_multi_4link(embed1, embed2, ent_list1, ent_list2, k, params,
     return neighbors1, neighbors2
 
 
+# TODO:不是很清楚这里是干嘛的
 def find_neighbours_multi(embed, ent_list, k, nums_threads, metric='euclidean'):
     if nums_threads > 1:
         ent_frags = ut.div_list(np.array(ent_list), nums_threads)

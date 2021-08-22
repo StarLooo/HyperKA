@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# lxy: I think triples.py needn't to be modified
-# and I add some comments for readability
+
 
 # define class Triples to indicate the (h, r, t)-triples
 class Triples:

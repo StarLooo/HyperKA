@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
-    # print(torch.__version__)
+    print(torch.__version__)
     # a = torch.empty(size=(5, 5), dtype=torch.float64)
     # torch.nn.init.xavier_uniform_(a, gain=1)
     # print(a)
