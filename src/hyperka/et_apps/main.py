@@ -16,11 +16,11 @@ parser.add_argument('--onto_layer_num', type=int, default=3)  # instance gcn层�
 parser.add_argument('--neg_typing_margin', type=float, default=0.1)  # 计算mapping loss的margin
 parser.add_argument('--neg_triple_margin', type=float, default=0.2)  # 计算triple loss的margin
 
-parser.add_argument('--triple_neg_nums', type=int, default=20)  # 计算triple loss时每个正例对应多少个负例
-parser.add_argument('--mapping_neg_nums', type=int, default=20)  # 计算mapping loss时每个正例对应多少个负例
+parser.add_argument('--triple_neg_nums', type=int, default=40)  # 计算triple loss时每个正例对应多少个负例
+parser.add_argument('--mapping_neg_nums', type=int, default=40)  # 计算mapping loss时每个正例对应多少个负例
 
 parser.add_argument('--learning_rate', type=float, default=5e-4)  # 学习率
-parser.add_argument('--batch_size', type=int, default=5000)  # batch_size
+parser.add_argument('--batch_size', type=int, default=2000)  # batch_size
 parser.add_argument('--epochs', type=int, default=10)  # epochs
 
 parser.add_argument('--epsilon4triple', type=float, default=1.0)  # TODO: 这个参数的含义不是很清楚
