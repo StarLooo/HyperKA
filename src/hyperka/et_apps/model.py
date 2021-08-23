@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import time
-from itertools import chain
 
 import torch
 import torch.nn as nn
@@ -103,8 +102,11 @@ class HyperKA(nn.Module):
                                                     size=onto_adj[2])
 
         self._generate_base_parameters()
-        self.all_named_train_parameters = self.named_parameters()
-        self.all_train_parameters = self.parameters()
+        self.all_named_train_parameters_list = []
+        self.all_train_parameters_list = []
+        for name, param in self.named_parameters():
+            self.all_named_train_parameters_list.append((name, param))
+            self.all_train_parameters_list.append(param)
 
         self.ins_layer_num = args.ins_layer_num
         self.onto_layer_num = args.onto_layer_num
@@ -118,8 +120,9 @@ class HyperKA(nn.Module):
                                  output_dim=self.args.ins_dim, layer_id=ins_layer_id, poincare=self.poincare,
                                  activation=activation)
             self.ins_gcn_layers_list.append(gcn_layer)
-            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
-            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
+            for name, param in gcn_layer.named_parameters():
+                self.all_named_train_parameters_list.append((name, param))
+                self.all_train_parameters_list.append(param)
 
         # ************************* ontology gnn ***************************
         self.onto_gcn_layers_list = []
@@ -131,8 +134,9 @@ class HyperKA(nn.Module):
                                  output_dim=self.args.onto_dim, layer_id=onto_layer_id, poincare=self.poincare,
                                  activation=activation)
             self.onto_gcn_layers_list.append(gcn_layer)
-            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
-            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
+            for name, param in gcn_layer.named_parameters():
+                self.all_named_train_parameters_list.append((name, param))
+                self.all_train_parameters_list.append(param)
 
     # 生成初始化的基本参数
     def _generate_base_parameters(self):
@@ -265,7 +269,6 @@ class HyperKA(nn.Module):
 
     # 根据triple loss优化参数
     def optimize_triple_loss(self, triple_pos_neg_batch):
-
         # 这一段是不是与_generate_parameters中重复了？
         ins_ent_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
         ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
@@ -296,7 +299,7 @@ class HyperKA(nn.Module):
 
         triple_loss = ins_triple_loss + onto_triple_loss
 
-        self._adapt_riemannian_optimizer(triple_loss, self.all_train_parameters)
+        self._adapt_riemannian_optimizer(triple_loss, iter(self.all_train_parameters_list))
 
         return triple_loss
 
@@ -334,7 +337,7 @@ class HyperKA(nn.Module):
         mapping_loss = self._compute_mapping_loss(mapped_link_phs_embeds, mapped_link_nhs_embeds,
                                                   link_pts_embeds, link_nts_embeds)
 
-        self._adapt_riemannian_optimizer(mapping_loss, self.all_train_parameters)
+        self._adapt_riemannian_optimizer(mapping_loss, iter(self.all_train_parameters_list))
 
         return mapping_loss
 

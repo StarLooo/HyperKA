@@ -121,8 +121,7 @@ def train_mapping_1_step(model, link_batch_size, mapping_neg_nums=20):
 
     mapping_pos_neg_batch = [link_pos_h, link_pos_t, link_neg_h, link_neg_t]
 
-    mapping_loss = model.optimize_mapping_loss(mapping_pos_neg_batch)
-    mapping_loss = mapping_loss.data
+    mapping_loss = model.optimize_mapping_loss(mapping_pos_neg_batch).data
 
     end = time.time()
     return mapping_loss, round(end - start, 2)
