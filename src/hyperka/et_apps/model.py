@@ -20,7 +20,8 @@ class GCNLayer(nn.Module):
         self.has_bias = has_bias
         self.activation = activation
         self.adj = adj
-        self.weight_matrix = nn.Parameter(torch.randn(input_dim, output_dim, dtype=torch.float64, requires_grad=True))
+        self.weight_matrix = nn.Parameter(
+            nn.init.xavier_uniform_(torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True)))
         if has_bias:
             self.bias_vec = nn.Parameter(torch.zeros(output_dim, dtype=torch.float64, requires_grad=True))
         else:
@@ -102,13 +103,36 @@ class HyperKA(nn.Module):
                                                     size=onto_adj[2])
 
         self._generate_base_parameters()
+        self.all_named_train_parameters = self.named_parameters()
+        self.all_train_parameters = self.parameters()
 
         self.ins_layer_num = args.ins_layer_num
         self.onto_layer_num = args.onto_layer_num
+        # ************************* instance gnn ***************************
+        self.ins_gcn_layers_list = []
+        for ins_layer_id in range(self.ins_layer_num):
+            activation = self.activation
+            if ins_layer_id == self.ins_layer_num - 1:
+                activation = None
+            gcn_layer = GCNLayer(adj=self.ins_adj_mat, input_dim=self.args.ins_dim,
+                                 output_dim=self.args.ins_dim, layer_id=ins_layer_id, poincare=self.poincare,
+                                 activation=activation)
+            self.ins_gcn_layers_list.append(gcn_layer)
+            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
+            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
 
-        self.all_train_parameters = self.parameters()
-
-        self.mapping_optimizer = torch.optim.Adam(params=self.all_train_parameters, lr=self.args.learning_rate)
+        # ************************* ontology gnn ***************************
+        self.onto_gcn_layers_list = []
+        for onto_layer_id in range(self.onto_layer_num):
+            activation = self.activation
+            if onto_layer_id == self.onto_layer_num - 1:
+                activation = None
+            gcn_layer = GCNLayer(adj=self.onto_adj_mat, input_dim=self.args.onto_dim,
+                                 output_dim=self.args.onto_dim, layer_id=onto_layer_id, poincare=self.poincare,
+                                 activation=activation)
+            self.onto_gcn_layers_list.append(gcn_layer)
+            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
+            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
 
     # 生成初始化的基本参数
     def _generate_base_parameters(self):
@@ -177,23 +201,13 @@ class HyperKA(nn.Module):
     def _graph_convolution(self):
         self.ins_ent_embeddings_output_list = list()  # reset
         self.onto_ent_embeddings_output_list = list()  # reset
-        self.all_named_train_parameters = self.named_parameters()  # reset
-        self.all_train_parameters = self.parameters()  # reset
 
         # ************************* instance gnn ***************************
         # In this case, we assume that the initialized embeddings are in the hyperbolic space.
         ins_ent_embeddings_output = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
         self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
         for ins_layer_id in range(self.ins_layer_num):
-            activation = self.activation
-            if ins_layer_id == self.ins_layer_num - 1:
-                activation = None
-            gcn_layer = GCNLayer(adj=self.ins_adj_mat, input_dim=self.args.ins_dim,
-                                 output_dim=self.args.ins_dim, layer_id=ins_layer_id + 1, poincare=self.poincare,
-                                 activation=activation)
-
-            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
-            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
+            gcn_layer = self.ins_gcn_layers_list[ins_layer_id]
             ins_ent_embeddings_output = gcn_layer.forward(ins_ent_embeddings_output)
             ins_ent_embeddings_output = self.poincare.mobius_addition(ins_ent_embeddings_output,
                                                                       self.ins_ent_embeddings_output_list[-1])
@@ -205,16 +219,7 @@ class HyperKA(nn.Module):
         onto_ent_embeddings_output = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
         self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
         for onto_layer_id in range(self.onto_layer_num):
-            activation = self.activation
-            if onto_layer_id == self.onto_layer_num - 1:
-                activation = None
-            gcn_layer = GCNLayer(adj=self.onto_adj_mat, input_dim=self.args.onto_dim,
-                                 output_dim=self.args.onto_dim, layer_id=onto_layer_id + 1, poincare=self.poincare,
-                                 activation=activation)
-
-            self.all_named_train_parameters = chain(self.all_named_train_parameters, gcn_layer.named_parameters())
-            self.all_train_parameters = chain(self.all_train_parameters, gcn_layer.parameters())
-
+            gcn_layer = self.onto_gcn_layers_list[onto_layer_id]
             onto_ent_embeddings_output = gcn_layer.forward(onto_ent_embeddings_output)
             onto_ent_embeddings_output = self.poincare.mobius_addition(onto_ent_embeddings_output,
                                                                        self.onto_ent_embeddings_output_list[-1])
@@ -291,7 +296,6 @@ class HyperKA(nn.Module):
 
         triple_loss = ins_triple_loss + onto_triple_loss
 
-        self.all_train_parameters = self.parameters()  # reset
         self._adapt_riemannian_optimizer(triple_loss, self.all_train_parameters)
 
         return triple_loss
