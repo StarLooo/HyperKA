@@ -143,28 +143,28 @@ class HyperKA(nn.Module):
         # 获得初始化的ins的嵌入向量
         self.ins_ent_embeddings = embed_init(size=(self.ins_ent_num, self.args.ins_dim),
                                              name="ins_ent_embeds",
-                                             method='glorot_uniform_initializer')
+                                             method='xavier_uniform')
         self.ins_ent_embeddings = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(self.ins_ent_embeddings))
         self.ins_ent_embeddings = nn.Parameter(self.ins_ent_embeddings)
 
         self.onto_ent_embeddings = embed_init(size=(self.onto_ent_num, self.args.onto_dim),
                                               name="onto_ent_embeds",
-                                              method='glorot_uniform_initializer')
+                                              method='xavier_uniform')
         self.onto_ent_embeddings = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(self.onto_ent_embeddings))
         self.onto_ent_embeddings = nn.Parameter(self.onto_ent_embeddings)
 
         self.ins_rel_embeddings = embed_init(size=(self.ins_rel_num, self.args.ins_dim),
                                              name="ins_rel_embeds",
-                                             method='glorot_uniform_initializer')
+                                             method='xavier_uniform')
         self.ins_rel_embeddings = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(self.ins_rel_embeddings))
         self.ins_rel_embeddings = nn.Parameter(self.ins_rel_embeddings)
 
         self.onto_rel_embeddings = embed_init(size=(self.onto_rel_num, self.args.onto_dim),
                                               name="onto_rel_embeds",
-                                              method='glorot_uniform_initializer')
+                                              method='xavier_uniform')
         self.onto_rel_embeddings = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(self.onto_rel_embeddings))
         self.onto_rel_embeddings = nn.Parameter(self.onto_rel_embeddings)
@@ -232,15 +232,17 @@ class HyperKA(nn.Module):
 
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
-    def _adapt_riemannian_optimizer(self, loss, train_params):
-        optimizer = torch.optim.Adam(params=train_params, lr=self.args.learning_rate)
+    def _adapt_riemannian_optimizer(self, loss, named_train_params):
+        optimizer = torch.optim.Adam(params=[x[1] for x in named_train_params], lr=self.args.learning_rate)
         optimizer.zero_grad()
         loss.backward()
         # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
-        for train_param in train_params:
+        for name, train_param in named_train_params:
+            # print("name and shape:", name, train_param.shape)
             if train_param.grad is None:
+                # print("skip")
                 continue
-            riemannian_grad = (1. - torch.norm(train_param, dim=1).reshape((-1, 1)) ** 2) ** 2 / 4
+            riemannian_grad = train_param.grad * (1. - torch.norm(train_param, dim=1).reshape((-1, 1)) ** 2) ** 2 / 4
             train_param.grad = riemannian_grad
         optimizer.step()
 
@@ -299,7 +301,7 @@ class HyperKA(nn.Module):
 
         triple_loss = ins_triple_loss + onto_triple_loss
 
-        self._adapt_riemannian_optimizer(triple_loss, iter(self.all_train_parameters_list))
+        self._adapt_riemannian_optimizer(triple_loss, self.all_named_train_parameters_list)
 
         return triple_loss
 
@@ -337,7 +339,7 @@ class HyperKA(nn.Module):
         mapping_loss = self._compute_mapping_loss(mapped_link_phs_embeds, mapped_link_nhs_embeds,
                                                   link_pts_embeds, link_nts_embeds)
 
-        self._adapt_riemannian_optimizer(mapping_loss, iter(self.all_train_parameters_list))
+        self._adapt_riemannian_optimizer(mapping_loss, self.all_named_train_parameters_list)
 
         return mapping_loss
 

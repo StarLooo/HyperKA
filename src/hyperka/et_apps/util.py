@@ -8,10 +8,10 @@ import torch.nn as nn
 
 
 # 初始化嵌入向量
-def embed_init(size, name, method='glorot_uniform_initializer', data_type=torch.float64):
+def embed_init(size, name, method='xavier_uniform', data_type=torch.float64):
     # Xavier均匀分布(default)
-    if method == 'glorot_uniform_initializer':
-        print("init embeddings using", "glorot_uniform_initializer", "with size of", size)
+    if method == 'xavier_uniform':
+        print("init embeddings using", "xavier_uniform", "with size of", size)
         embeddings = nn.init.xavier_uniform_(
             tensor=torch.empty(size=size, dtype=data_type, requires_grad=True))
 
