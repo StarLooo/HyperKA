@@ -138,6 +138,8 @@ class HyperKA(nn.Module):
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
+        self.optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
+
     # 生成初始化的基本参数
     def _generate_base_parameters(self):
         # 获得初始化的ins的嵌入向量
@@ -233,12 +235,11 @@ class HyperKA(nn.Module):
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
     def _adapt_riemannian_optimizer(self, loss, named_train_params):
-        optimizer = torch.optim.Adam(params=[x[1] for x in named_train_params], lr=self.args.learning_rate)
+        optimizer = self.optimizer
         optimizer.zero_grad()
         loss.backward()
         # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
         for name, train_param in named_train_params:
-            # print("name and shape:", name, train_param.shape)
             if train_param.grad is None:
                 # print("skip")
                 continue
