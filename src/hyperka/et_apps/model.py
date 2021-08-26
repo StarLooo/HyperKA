@@ -138,7 +138,8 @@ class HyperKA(nn.Module):
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
-        self.optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
+        self.triple_optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
+        self.mapping_optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
 
     # 生成初始化的基本参数
     def _generate_base_parameters(self):
@@ -234,8 +235,7 @@ class HyperKA(nn.Module):
 
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
-    def _adapt_riemannian_optimizer(self, loss, named_train_params):
-        optimizer = self.optimizer
+    def _adapt_riemannian_optimizer(self, optimizer, loss, named_train_params):
         optimizer.zero_grad()
         loss.backward()
         # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
@@ -302,7 +302,7 @@ class HyperKA(nn.Module):
 
         triple_loss = ins_triple_loss + onto_triple_loss
 
-        self._adapt_riemannian_optimizer(triple_loss, self.all_named_train_parameters_list)
+        self._adapt_riemannian_optimizer(self.triple_optimizer, triple_loss, self.all_named_train_parameters_list)
 
         return triple_loss
 
@@ -340,7 +340,7 @@ class HyperKA(nn.Module):
         mapping_loss = self._compute_mapping_loss(mapped_link_phs_embeds, mapped_link_nhs_embeds,
                                                   link_pts_embeds, link_nts_embeds)
 
-        self._adapt_riemannian_optimizer(mapping_loss, self.all_named_train_parameters_list)
+        self._adapt_riemannian_optimizer(self.mapping_optimizer, mapping_loss, self.all_named_train_parameters_list)
 
         return mapping_loss
 
