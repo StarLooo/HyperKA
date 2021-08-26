@@ -4,46 +4,62 @@ import time
 from hyperka.ea_funcs.triples import Triples
 
 
-def read_input(folder):
-    triples_set1 = read_triples(folder + 'triples_1')
-    triples_set2 = read_triples(folder + 'triples_2')
-    triples1 = Triples(triples_set1)
-    triples2 = Triples(triples_set2)
-    total_ent_num = len(triples1.ents | triples2.ents)
-    total_rel_num = len(triples1.props | triples2.props)
-    total_triples_num = len(triples1.triple_list) + len(triples2.triple_list)
-    print('total ents:', total_ent_num)
-    print('total rels:', len(triples1.props), len(triples2.props), total_rel_num)
-    print('total triples: %d + %d = %d' % (len(triples1.triples), len(triples2.triples), total_triples_num))
-    ref_ent1, ref_ent2 = read_references(folder + 'ref_ent_ids')
-    assert len(ref_ent1) == len(ref_ent2)
-    print("To aligned entities:", len(ref_ent1))
-    sup_ent1, sup_ent2 = read_references(folder + 'sup_ent_ids')
-    return triples1, triples2, sup_ent1, sup_ent2, ref_ent1, ref_ent2, total_triples_num, total_ent_num, total_rel_num
+# TODO: may be useless
+# 读入非dbp15k数据集中全部所需数据(可能是作者还用了dbp15k以外的数据集来进行实验)
+def read_other_input(folder):
+    source_triples = Triples(read_triples(folder + 'triples_1'))
+    target_triples = Triples(read_triples(folder + 'triples_2'))
+
+    total_ents_num = len(source_triples.ents | target_triples.ents)
+    total_rels_num = len(source_triples.rels | target_triples.rels)
+    total_triples_num = len(source_triples.triple_list) + len(target_triples.triple_list)
+    print('total ents num:', total_ents_num)
+    print('total rels num:', len(source_triples.rels), len(target_triples.rels), total_rels_num)
+    print('total triples num: %d + %d = %d' % (
+        len(source_triples.triples), len(target_triples.triples), total_triples_num))
+
+    ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_ent_ids')
+    print("aligned entities in train file:", len(ref_source_aligned_ents))
+
+    sup_source_aligned_ents, sup_target_aligned_ents = read_aligned_pairs(folder + 'sup_ent_ids')
+
+    return \
+        source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
+        ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num
 
 
+# 读入dbp15k数据集中全部所需数据
 def read_dbp15k_input(folder):
-    triples_set1 = read_triples(folder + 'triples_1')
-    triples_set2 = read_triples(folder + 'triples_2')
-    triples1 = Triples(triples_set1)
-    triples2 = Triples(triples_set2)
-    total_ent_num = len(triples1.ents | triples2.ents)
-    total_rel_num = len(triples1.props | triples2.props)
-    total_triples_num = len(triples1.triple_list) + len(triples2.triple_list)
-    print('total ents:', total_ent_num)
-    print('total rels:', len(triples1.props), len(triples2.props), total_rel_num)
-    print('total triples: %d + %d = %d' % (len(triples1.triples), len(triples2.triples), total_triples_num))
+    # 读取源知识图谱(source_KG)中的三元组并用于初始化Triples类，便于管理
+    source_triples = Triples(read_triples(folder + 'triples_1'))
+    # 读取目标知识图谱(target_KG)中的三元组并用于初始化Triples类，便于管理
+    target_triples = Triples(read_triples(folder + 'triples_2'))
+
+    total_ents_num = len(source_triples.ents | target_triples.ents)
+    total_rels_num = len(source_triples.rels | target_triples.rels)
+    total_triples_num = len(source_triples.triple_list) + len(target_triples.triple_list)
+    print('total ents num:', total_ents_num)
+    print('total rels num:', len(source_triples.rels), len(target_triples.rels), total_rels_num)
+    print('total triples num: %d + %d = %d' % (
+        len(source_triples.triples), len(target_triples.triples), total_triples_num))
+
+    # TODO: 不清楚这里路径中mtranse的含义是不是与MTransE算法有关，还是仅仅使用了相同的数据集而已
+    # 事实上"mtranse"确实在我们使用的dbk15数据集的路径中
     if 'mtranse' in folder:
-        ref_ent1, ref_ent2 = read_references(folder + 'ref_pairs')
+        ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_pairs')
     else:
-        ref_ent1, ref_ent2 = read_references(folder + 'ref_ent_ids')
-    assert len(ref_ent1) == len(ref_ent2)
-    print("To aligned entities:", len(ref_ent1))
+        ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_ent_ids')
+    print("aligned entities in train file:", len(ref_source_aligned_ents))
+
     if 'mtranse' in folder:
-        sup_ent1, sup_ent2 = read_references(folder + 'sup_pairs')
+        sup_source_aligned_ents, sup_target_aligned_ents = read_aligned_pairs(folder + 'sup_pairs')
     else:
-        sup_ent1, sup_ent2 = read_references(folder + 'sup_ent_ids')
-    return triples1, triples2, sup_ent1, sup_ent2, ref_ent1, ref_ent2, total_triples_num, total_ent_num, total_rel_num
+        sup_source_aligned_ents, sup_target_aligned_ents = read_aligned_pairs(folder + 'sup_ent_ids')
+
+    # 注意返回值的结构和顺序
+    return \
+        source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
+        ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num
 
 
 def generate_sup_triples(triples1, triples2, ents1, ents2):
@@ -79,6 +95,7 @@ def pair2file(file, pairs):
         f.close()
 
 
+# 从给定的文件中读取(h,r,t)三元组，返回给定文件中所有(h,r,t)三元组组成的set
 def read_triples(file):
     triples = set()
     with open(file, 'r', encoding='utf8') as f:
@@ -93,19 +110,20 @@ def read_triples(file):
     return triples
 
 
-def read_references(file):
-    ref1, ref2 = list(), list()
+# 读取已经对齐的实体对
+def read_aligned_pairs(file):
+    source_aligned_ents, target_aligned_ents = list(), list()
     with open(file, 'r', encoding='utf8') as f:
         for line in f:
             params = line.strip('\n').split('\t')
             assert len(params) == 2
-            e1 = int(params[0])
-            e2 = int(params[1])
-            ref1.append(e1)
-            ref2.append(e2)
+            ent_1 = int(params[0])
+            ent_2 = int(params[1])
+            source_aligned_ents.append(ent_1)
+            target_aligned_ents.append(ent_2)
         f.close()
-        assert len(ref1) == len(ref2)
-    return ref1, ref2
+        assert len(source_aligned_ents) == len(target_aligned_ents)
+    return source_aligned_ents, target_aligned_ents
 
 
 def div_list(ls, n):
@@ -163,7 +181,7 @@ def generate_ent_attrs_sum(ent_num, ent_attrs1, ent_attrs2, attr_embeddings):
     for i in range(ent_num):
         attrs_index = list(ent_attrs1.get(i, set()) | ent_attrs2.get(i, set()))
         assert len(attrs_index) > 0
-        attrs_embeds = np.sum(attr_embeddings[attrs_index, ], axis=0)
+        attrs_embeds = np.sum(attr_embeddings[attrs_index, :], axis=0)
         if ent_attrs_embeddings is None:
             ent_attrs_embeddings = attrs_embeds
         else:

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import argparse
 import math
 import random
@@ -18,26 +19,28 @@ g = 1024 * 1024
 ray.init()
 
 parser = argparse.ArgumentParser(description='HyperKE4EA')
-parser.add_argument('--input', type=str, default='../../../dataset/dbp15k/zh_en/mtranse/0_3/')
-parser.add_argument('--output', type=str, default='../../../output/results/')
+parser.add_argument('--input', type=str, default='../../../dataset/dbp15k/zh_en/mtranse/0_3/')  # 路径
+parser.add_argument('--output', type=str, default='../../../output/results/')  # 路径
 
-parser.add_argument('--dim', type=int, default=75)
-parser.add_argument('--gnn_layer_num', type=int, default=2)
-parser.add_argument('--ent_top_k', type=list, default=[1, 5, 10, 50])
+parser.add_argument('--dim', type=int, default=75)  # 嵌入向量的维度
+parser.add_argument('--gcn_layer_num', type=int, default=2)  # gcn层数
 
-parser.add_argument('--neg_align_margin', type=float, default=0.4)
-parser.add_argument('--neg_triple_margin', type=float, default=0.1)
+parser.add_argument('--neg_align_margin', type=float, default=0.4)  # 计算mapping loss的margin
+parser.add_argument('--neg_triple_margin', type=float, default=0.1)  # 计算triple loss的margin
 
-parser.add_argument('--learning_rate', type=float, default=0.0002)
-parser.add_argument('--drop_rate', type=float, default=0.2)
+parser.add_argument('--learning_rate', type=float, default=0.0002)  # 学习率
+parser.add_argument('--batch_size', type=int, default=20000)  # batch_size
+parser.add_argument('--epochs', type=int, default=800)  # epochs
+parser.add_argument('--drop_rate', type=float, default=0.2)  # 丢弃率
 
-parser.add_argument('--epsilon4triple', type=float, default=0.98)
+parser.add_argument('--epsilon4triple', type=float, default=0.98)  # TODO: 这个参数的含义不是很清楚
 
-parser.add_argument('--batch_size', type=int, default=20000)
-parser.add_argument('--nums_neg', type=int, default=40)
-parser.add_argument('--triple_nums_neg', type=int, default=40)
-parser.add_argument('--nums_threads', type=int, default=8)
-parser.add_argument('--epochs', type=int, default=800)
+parser.add_argument('--ent_top_k', type=list, default=[1, 5, 10, 50])  # 应当是选取作为输出的预测列表的
+
+parser.add_argument('--triple_neg_nums', type=int, default=40)  # 计算triple loss时每个正例对应多少个负例
+parser.add_argument('--mapping_neg_nums', type=int, default=40)  # 计算mapping loss时每个正例对应多少个负例
+
+parser.add_argument('--nums_threads', type=int, default=1)  # TODO: 多线程数，这里本来默认值为8，但在本机上不支持，所以直接改为1
 parser.add_argument('--test_interval', type=int, default=4)
 
 parser.add_argument('--sim_th', type=float, default=0.75)
@@ -46,7 +49,7 @@ parser.add_argument('--start_bp', type=int, default=40)
 parser.add_argument('--bp_param', type=float, default=0.05)
 parser.add_argument('--is_bp', type=ast.literal_eval, default=False)
 parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
-parser.add_argument('--combine', type=ast.literal_eval, default=True)
+parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否结合第0层和最后一层的嵌入
 
 
 def generate_link_batch(model: HyperKA, align_batch_size, nums_neg):
@@ -157,7 +160,7 @@ def train_triple_1step(model, triples1, triples2, neighbours1, neighbours2, step
     return triple_loss, round(end - start, 2)
 
 
-def semi_alignment(model:HyperKA, params):
+def semi_alignment(model: HyperKA, params):
     print()
     t = time.time()
     refs1_embed = model.eval_output_embed(model.ref_ent1, is_map=True)
@@ -178,9 +181,13 @@ def semi_alignment(model:HyperKA, params):
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print("show the args:")
     print(args)
 
+    print("get model...")
     triples1, triples2, model = get_model(args.input, HyperKA, args)
+    print("get model finished\n")
+
     hits1, old_hits1 = None, None
     trunc_ent_num1 = int(len(triples1.ent_list) * (1.0 - args.epsilon4triple))
     print("trunc ent num for triples:", trunc_ent_num1)

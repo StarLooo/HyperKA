@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 # define class Triples to indicate the (h, r, t)-triples
 class Triples:
     def __init__(self, triples, ori_triples=None):

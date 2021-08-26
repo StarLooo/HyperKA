@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import gc
 import ray
 import numpy as np
@@ -12,26 +13,64 @@ from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
 g = 1000000000
 
 
-def enhance_triples(kg1, kg2, ents1, ents2):
-    assert len(ents1) == len(ents2)
-    print("before enhanced:", len(kg1.triples), len(kg2.triples))
-    enhanced_triples1, enhanced_triples2 = set(), set()
-    links1 = dict(zip(ents1, ents2))
-    links2 = dict(zip(ents2, ents1))
-    for h1, r1, t1 in kg1.triples:
+def get_model(folder, kge_model, params):
+    print("data folder:", folder)
+
+    print("read_input begin...")
+    if "15" in folder:
+        read_func = ut.read_dbp15k_input
+    else:
+        read_func = ut.read_other_input
+
+    source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
+    ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num = read_func(folder)
+
+    # ori_triples1, ori_triples2, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2, ent_n, rel_n = read_func(folder)
+
+    # TODO: linked_entitieså†…æ¶µä¸ºæœªçŸ¥
+    linked_entities = set(
+        sup_source_aligned_ents + sup_target_aligned_ents + ref_source_aligned_ents + ref_target_aligned_ents)
+
+    # TODO: å¢å¼ºtriplesä¸­çš„æ•°æ®?
+    enhanced_source_triples, enhanced_target_triples = enhance_triples(source_triples, target_triples,
+                                                                       sup_source_aligned_ents,
+                                                                       sup_target_aligned_ents)
+
+    triples = remove_unlinked_triples(source_triples.triple_list + target_triples.triple_list +
+                                      list(enhanced_source_triples) + list(enhanced_target_triples), linked_entities)
+    adj = gen_adj(total_ents_num, triples)
+    model = kge_model(total_ents_num, total_rels_num, sup_source_aligned_ents, sup_target_aligned_ents,
+                      ref_source_aligned_ents, ref_target_aligned_ents, source_triples.ent_list,
+                      target_triples.ent_list, adj, params)
+    return source_triples, target_triples, model
+
+
+# æ•°æ®å¢å¼º
+def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents):
+    assert len(sup_source_aligned_ents) == len(sup_target_aligned_ents)
+
+    print("before enhanced:")
+    print("source KG's triples num:", len(source_triples.triples))
+    print("target KG's triples num:", len(target_triples.triples))
+
+    enhanced_source_triples_set, enhanced_source_triples_set = set(), set()
+
+    links1 = dict(zip(sup_source_aligned_ents, sup_target_aligned_ents))
+    links2 = dict(zip(sup_target_aligned_ents, sup_source_aligned_ents))
+    for h1, r1, t1 in source_triples.triples:
         h2 = links1.get(h1, None)
         t2 = links1.get(t1, None)
-        if h2 is not None and t2 is not None and t2 not in kg2.out_related_ents_dict.get(h2, set()):
+        if h2 is not None and t2 is not None and t2 not in target_triples.out_related_ents_dict.get(h2, set()):
             enhanced_triples2.add((h2, r1, t2))
         # if h2 is not None:
         #     enhanced_triples2.add((h2, r1, t1))
         # if t2 is not None:
         #     enhanced_triples2.add((h1, r1, t2))
 
-    for h2, r2, t2 in kg2.triples:
+    for h2, r2, t2 in target_triples.triples:
         h1 = links2.get(h2, None)
         t1 = links2.get(t2, None)
-        if h1 is not None and t1 is not None and t1 not in kg1.out_related_ents_dict.get(h1, set()):
+        if h1 is not None and t1 is not None and t1 not in source_triples.out_related_ents_dict.get(h1, set()):
             enhanced_triples1.add((h1, r2, t1))
         # if h1 is not None:
         #     enhanced_triples1.add((h1, r2, t2))
@@ -57,27 +96,10 @@ def get_transe_model(folder, kge_model, params):
     if "15" in folder:
         read_func = ut.read_dbp15k_input
     else:
-        read_func = ut.read_input
+        read_func = ut.read_other_input
     ori_triples1, ori_triples2, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2, _, ent_n, rel_n = read_func(folder)
     model = kge_model(ent_n, rel_n, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2,
                       ori_triples1.ent_list, ori_triples2.ent_list, params)
-    return ori_triples1, ori_triples2, model
-
-
-def get_model(folder, kge_model, params):
-    print("data folder:", folder)
-    if "15" in folder:
-        read_func = ut.read_dbp15k_input
-    else:
-        read_func = ut.read_input
-    ori_triples1, ori_triples2, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2, _, ent_n, rel_n = read_func(folder)
-    linked_entities = set(seed_sup_ent1 + seed_sup_ent2 + ref_ent1 + ref_ent2)
-    enhanced_triples1, enhanced_triples2 = enhance_triples(ori_triples1, ori_triples2, seed_sup_ent1, seed_sup_ent2)
-    triples = remove_unlinked_triples(ori_triples1.triple_list + ori_triples2.triple_list +
-                                      list(enhanced_triples1) + list(enhanced_triples2), linked_entities)
-    adj = gen_adj(ent_n, triples)
-    model = kge_model(ent_n, rel_n, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2,
-                      ori_triples1.ent_list, ori_triples2.ent_list, adj, params)
     return ori_triples1, ori_triples2, model
 
 
@@ -151,7 +173,7 @@ def find_neighbours_multi_4link(embed1, embed2, ent_list1, ent_list2, k, params,
     return neighbors1, neighbors2
 
 
-# TODO:²»ÊÇºÜÇå³şÕâÀïÊÇ¸ÉÂïµÄ
+# TODO:ä¸æ˜¯å¾ˆæ¸…æ¥šè¿™é‡Œæ˜¯å¹²å˜›çš„
 def find_neighbours_multi(embed, ent_list, k, nums_threads, metric='euclidean'):
     if nums_threads > 1:
         ent_frags = ut.div_list(np.array(ent_list), nums_threads)
