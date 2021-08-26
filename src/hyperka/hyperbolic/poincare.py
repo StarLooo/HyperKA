@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import numpy as np
 import torch
 
@@ -70,7 +71,7 @@ class PoincareManifold(EuclideanManifold):
     def hyperbolic_projection(self, vectors):
         # Projection operation. Need to make sure hyperbolic embeddings are inside the unit ball.
 
-        # ÓÉÓÚÃ»ÓĞÔÚtorchÕÒµ½¶ÔÓ¦µÄÂÖ×Ó£¬ËùÒÔ×Ô¼ºÔìÁËÒ»¸ö
+        # ç”±äºæ²¡æœ‰åœ¨torchæ‰¾åˆ°å¯¹åº”çš„è½®å­ï¼Œæ‰€ä»¥è‡ªå·±é€ äº†ä¸€ä¸ª
         vectors_norm = torch.maximum(util_norm(vectors), torch.full_like(vectors, self.min_norm))
         max_norm = self.max_norm / np.sqrt(self.radius)
         cond = torch.squeeze(vectors_norm < max_norm)

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import gc
+import os
+
 import ray
 import numpy as np
 import random
@@ -25,16 +27,17 @@ def get_model(folder, kge_model, params):
     source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
     ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num = read_func(folder)
 
-    # ori_triples1, ori_triples2, seed_sup_ent1, seed_sup_ent2, ref_ent1, ref_ent2, ent_n, rel_n = read_func(folder)
-
     # TODO: linked_entities内涵为未知
     linked_entities = set(
         sup_source_aligned_ents + sup_target_aligned_ents + ref_source_aligned_ents + ref_target_aligned_ents)
 
-    # TODO: 增强triples中的数据?
+    # TODO: 增强triples中的数据
+    print("enhance triples begin:")
     enhanced_source_triples, enhanced_target_triples = enhance_triples(source_triples, target_triples,
                                                                        sup_source_aligned_ents,
                                                                        sup_target_aligned_ents)
+    print("enhance triples finished")
+    os.system("pause")
 
     triples = remove_unlinked_triples(source_triples.triple_list + target_triples.triple_list +
                                       list(enhanced_source_triples) + list(enhanced_target_triples), linked_entities)
@@ -53,32 +56,36 @@ def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup
     print("source KG's triples num:", len(source_triples.triples))
     print("target KG's triples num:", len(target_triples.triples))
 
-    enhanced_source_triples_set, enhanced_source_triples_set = set(), set()
+    # 这里的逻辑是：对source KG中的每一个triple(包含source_head, source_rel和source_tail)的头(source_head)和尾(source_tail)，
+    # 寻找在训练集中给出的target KG中与source_head和source_tail对齐的实体(分别记为enhanced_head和enhanced_tail)。
+    # 如果enhanced_head和enhanced_tail均存在且source KG中没有(enhanced_head, source_rel, enhanced_tail)这一triple，
+    # 则添将其加到enhanced_source_triples_set中。
+    enhanced_source_triples_set = set()
+    links_from_source_to_target = dict(zip(sup_source_aligned_ents, sup_target_aligned_ents))
+    for source_head, source_rel, source_tail in source_triples.triples:
+        enhanced_head = links_from_source_to_target.get(source_head, None)
+        enhanced_tail = links_from_source_to_target.get(source_tail, None)
 
-    links1 = dict(zip(sup_source_aligned_ents, sup_target_aligned_ents))
-    links2 = dict(zip(sup_target_aligned_ents, sup_source_aligned_ents))
-    for h1, r1, t1 in source_triples.triples:
-        h2 = links1.get(h1, None)
-        t2 = links1.get(t1, None)
-        if h2 is not None and t2 is not None and t2 not in target_triples.out_related_ents_dict.get(h2, set()):
-            enhanced_triples2.add((h2, r1, t2))
-        # if h2 is not None:
-        #     enhanced_triples2.add((h2, r1, t1))
-        # if t2 is not None:
-        #     enhanced_triples2.add((h1, r1, t2))
+        if enhanced_head is not None and enhanced_tail is not None \
+                and enhanced_tail not in target_triples.out_related_ents_dict.get(enhanced_head, set()):
+            enhanced_source_triples_set.add((enhanced_head, source_rel, enhanced_tail))
 
-    for h2, r2, t2 in target_triples.triples:
-        h1 = links2.get(h2, None)
-        t1 = links2.get(t2, None)
-        if h1 is not None and t1 is not None and t1 not in source_triples.out_related_ents_dict.get(h1, set()):
-            enhanced_triples1.add((h1, r2, t1))
-        # if h1 is not None:
-        #     enhanced_triples1.add((h1, r2, t2))
-        # if t1 is not None:
-        #     enhanced_triples1.add((h2, r2, t1))
+    # 同理，此略
+    enhanced_target_triples_set = set()
+    links_from_target_to_source = dict(zip(sup_target_aligned_ents, sup_source_aligned_ents))
+    for source_head, target_rel, source_tail in target_triples.triples:
+        enhanced_head = links_from_source_to_target.get(source_head, None)
+        enhanced_tail = links_from_source_to_target.get(source_tail, None)
 
-    print("after enhanced:", len(enhanced_triples1), len(enhanced_triples2))
-    return enhanced_triples1, enhanced_triples2
+        if enhanced_head is not None and enhanced_tail is not None \
+                and enhanced_tail not in source_triples.out_related_ents_dict.get(enhanced_head, set()):
+            enhanced_target_triples_set.add((enhanced_head, target_rel, enhanced_tail))
+
+    print("after enhanced finished")
+    print("source KG's triples num:", len(enhanced_source_triples_set))
+    print("target KG's triples num:", len(enhanced_target_triples_set))
+
+    return enhanced_source_triples_set, enhanced_target_triples_set
 
 
 def remove_unlinked_triples(triples, linked_ents):

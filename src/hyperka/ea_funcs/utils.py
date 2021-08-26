@@ -19,7 +19,6 @@ def read_other_input(folder):
         len(source_triples.triples), len(target_triples.triples), total_triples_num))
 
     ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_ent_ids')
-    print("aligned entities in train file:", len(ref_source_aligned_ents))
 
     sup_source_aligned_ents, sup_target_aligned_ents = read_aligned_pairs(folder + 'sup_ent_ids')
 
@@ -38,8 +37,10 @@ def read_dbp15k_input(folder):
     total_ents_num = len(source_triples.ents | target_triples.ents)
     total_rels_num = len(source_triples.rels | target_triples.rels)
     total_triples_num = len(source_triples.triple_list) + len(target_triples.triple_list)
-    print('total ents num:', total_ents_num)
-    print('total rels num:', len(source_triples.rels), len(target_triples.rels), total_rels_num)
+    print('total ents num: %d + %d = %d' % (
+        len(source_triples.ents), len(target_triples.ents), total_ents_num))
+    print('total rels num: %d + %d = %d' % (
+        len(source_triples.rels), len(target_triples.rels), total_rels_num))
     print('total triples num: %d + %d = %d' % (
         len(source_triples.triples), len(target_triples.triples), total_triples_num))
 
@@ -49,7 +50,6 @@ def read_dbp15k_input(folder):
         ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_pairs')
     else:
         ref_source_aligned_ents, ref_target_aligned_ents = read_aligned_pairs(folder + 'ref_ent_ids')
-    print("aligned entities in train file:", len(ref_source_aligned_ents))
 
     if 'mtranse' in folder:
         sup_source_aligned_ents, sup_target_aligned_ents = read_aligned_pairs(folder + 'sup_pairs')
