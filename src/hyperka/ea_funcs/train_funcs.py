@@ -33,15 +33,19 @@ def get_model(folder, kge_model, params):
 
     # TODO: 增强triples中的数据
     print("enhance triples begin:")
-    enhanced_source_triples, enhanced_target_triples = enhance_triples(source_triples, target_triples,
-                                                                       sup_source_aligned_ents,
-                                                                       sup_target_aligned_ents)
+    enhanced_source_triples_list, enhanced_target_triples_list = enhance_triples(source_triples, target_triples,
+                                                                                 sup_source_aligned_ents,
+                                                                                 sup_target_aligned_ents)
     print("enhance triples finished")
-    os.system("pause")
 
-    triples = remove_unlinked_triples(source_triples.triple_list + target_triples.triple_list +
-                                      list(enhanced_source_triples) + list(enhanced_target_triples), linked_entities)
-    adj = gen_adj(total_ents_num, triples)
+    # 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
+    triples_list = remove_unlinked_triples(source_triples.triple_list + target_triples.triple_list +
+                                           enhanced_source_triples_list + enhanced_target_triples_list, linked_entities)
+
+    # 这里应该与et里是一样的
+    adj = gen_adj(total_ents_num, triples_list)
+    os.system("pause")  # 2021/8/28 15:41改代码至能够正确运行到此处
+
     model = kge_model(total_ents_num, total_rels_num, sup_source_aligned_ents, sup_target_aligned_ents,
                       ref_source_aligned_ents, ref_target_aligned_ents, source_triples.ent_list,
                       target_triples.ent_list, adj, params)
@@ -85,17 +89,18 @@ def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup
     print("source KG's triples num:", len(enhanced_source_triples_set))
     print("target KG's triples num:", len(enhanced_target_triples_set))
 
-    return enhanced_source_triples_set, enhanced_target_triples_set
+    return list(enhanced_source_triples_set), list(enhanced_target_triples_set)
 
 
+# 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
 def remove_unlinked_triples(triples, linked_ents):
-    print("before removing unlinked triples:", len(triples))
-    new_triples = set()
-    for h, r, t in triples:
-        if h in linked_ents and t in linked_ents:
-            new_triples.add((h, r, t))
-    print("after removing unlinked triples:", len(new_triples))
-    return list(new_triples)
+    print("before removing unlinked triples num:", len(triples))
+    new_triples_set = set()
+    for head, rel, tail in triples:
+        if head in linked_ents and tail in linked_ents:
+            new_triples_set.add((head, rel, tail))
+    print("after removing unlinked triples num:", len(new_triples_set))
+    return list(new_triples_set)
 
 
 def get_transe_model(folder, kge_model, params):
