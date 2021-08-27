@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import math
+import os
 import random
 import time
 import sys
@@ -50,7 +51,7 @@ parser.add_argument('--sim_th', type=float, default=0.75)
 parser.add_argument('--nearest_k', type=int, default=10)
 parser.add_argument('--start_bp', type=int, default=40)
 parser.add_argument('--bp_param', type=float, default=0.05)
-parser.add_argument('--is_bp', type=ast.literal_eval, default=False)
+parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # TODO:是否采用bootstrapping?
 parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
 parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否结合第0层和最后一层的嵌入
 
@@ -61,8 +62,9 @@ if __name__ == '__main__':
     print()
 
     print("get model...")
-    triples1, triples2, model = get_model(args.input, HyperKA, args)
+    source_triples, target_triples, model = get_model(args.input, HyperKA, args)
     print("get model finished\n")
+    os.system("pause")  # 2021/8/27 14:09改代码至能够正确运行到此处
 
     # hits1, old_hits1 = None, None
     # trunc_ent_num1 = int(len(triples1.ent_list) * (1.0 - args.epsilon4triple))

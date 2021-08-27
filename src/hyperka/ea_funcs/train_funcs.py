@@ -7,7 +7,7 @@ import numpy as np
 import random
 from sklearn import preprocessing
 
-from hyperka.ea_apps.util import gen_adj
+from hyperka.ea_apps.util import generate_adjacent_graph
 import hyperka.ea_funcs.utils as ut
 from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
 from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
@@ -15,7 +15,7 @@ from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
 g = 1000000000
 
 
-def get_model(folder, kge_model, params):
+def get_model(folder, kge_model, args):
     print("data folder:", folder)
 
     print("read_input begin...")
@@ -43,12 +43,12 @@ def get_model(folder, kge_model, params):
                                            enhanced_source_triples_list + enhanced_target_triples_list, linked_entities)
 
     # 这里应该与et里是一样的
-    adj = gen_adj(total_ents_num, triples_list)
-    os.system("pause")  # 2021/8/28 15:41改代码至能够正确运行到此处
+    adj = generate_adjacent_graph(total_ents_num, triples_list)
 
     model = kge_model(total_ents_num, total_rels_num, sup_source_aligned_ents, sup_target_aligned_ents,
                       ref_source_aligned_ents, ref_target_aligned_ents, source_triples.ent_list,
-                      target_triples.ent_list, adj, params)
+                      target_triples.ent_list, adj, args)
+
     return source_triples, target_triples, model
 
 
