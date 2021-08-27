@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import gc
 import os
-
+import time
 import ray
 import numpy as np
 import random
 from sklearn import preprocessing
-
+import sys
 from hyperka.ea_apps.util import generate_adjacent_graph
 import hyperka.ea_funcs.utils as ut
 from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
@@ -102,6 +102,142 @@ def remove_unlinked_triples(triples, linked_ents):
     print("after removing unlinked triples num:", len(new_triples_set))
     return list(new_triples_set)
 
+
+# 训练k个epoch
+def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_ent_num):
+    neighbours_of_source_triples, neighbours_of_target_triples = dict(), dict()
+    start = time.time()
+    # TODO:trunc_source_ent_num的作用不是很明白，下面这个if语句内的逻辑不清楚
+    if trunc_source_ent_num > 0.1:
+        source_embeds = model.eval_source_input_embed()
+        target_embeds = model.eval_target_input_embed()
+        neighbours_of_source_triples = find_neighbours_multi(source_embeds, model.source_triples_list,
+                                                             trunc_source_ent_num,
+                                                             args.nums_threads)
+        neighbours_of_target_triples = find_neighbours_multi(target_embeds, model.target_triples_list,
+                                                             trunc_source_ent_num,
+                                                             args.nums_threads)
+        end = time.time()
+        print("generate nearest-{} neighbours: {:.3f} s, size: {:.6f} G".format(trunc_source_ent_num, end - start,
+                                                                                sys.getsizeof(
+                                                                                    neighbours_of_source_triples) / g))
+    for epoch in range(k):
+        print("epoch:", epoch + 1)
+        triple_loss, mapping_loss, time_cost = train_1_epoch(model, source_triples, target_triples, args,
+                                                             neighbours_of_source_triples,
+                                                             neighbours_of_target_triples)
+        print("triple_loss(L1) = {:.3f}, mapping_loss(L2) = {:.3f}, "
+              "time = {:.3f} s".format(triple_loss, mapping_loss, time_cost))
+
+    end = time.time()
+    print("train k epochs finished, time cost:", round(end - start, 2), "s")
+    if neighbours_of_source_triples is {}:
+        del neighbours_of_source_triples, neighbours_of_target_triples
+        gc.collect()
+
+
+# def train_1epoch(iteration, model: HyperKA, triples1, triples2, neighbours1, neighbours2, params, burn_in=5):
+#     triple_loss = 0
+#     mapping_loss = 0
+#     total_time = 0.0
+#     lr = params.learning_rate
+#     if iteration <= burn_in:
+#         lr /= 5
+#     steps = math.ceil((triples1.triples_num + triples2.triples_num) / params.batch_size)
+#     link_batch_size = math.ceil(len(model.sup_ent1) / steps)
+#     for step in range(steps):
+#         loss1, t1 = train_triple_1step(model, triples1, triples2, neighbours1, neighbours2, step, params, lr)
+#         triple_loss += loss1
+#         total_time += t1
+#         loss2, t2 = train_alignment_1step(model, link_batch_size, params.nums_neg, lr)
+#         mapping_loss += loss2
+#         total_time += t2
+#     triple_loss /= steps
+#     mapping_loss /= steps
+#     random.shuffle(triples1.triple_list)
+#     random.shuffle(triples2.triple_list)
+#     return triple_loss, mapping_loss, total_time
+#
+#
+# def train_alignment_1step(model: HyperKA, batch_size, neg_num, lr):
+#     fetches = {"link_loss": model.mapping_loss, "train_op": model.mapping_optimizer}
+#     pos_links, neg_links = generate_link_batch(model, batch_size, neg_num)
+#     pos_entities1 = [p[0] for p in pos_links]
+#     pos_entities2 = [p[1] for p in pos_links]
+#     neg_entities1 = [n[0] for n in neg_links]
+#     neg_entities2 = [n[1] for n in neg_links]
+#     if len(model.new_alignment_pairs) > 0:
+#         new_batch_size = math.ceil(len(model.new_alignment_pairs) / len(model.sup_ent1) * batch_size)
+#         samples = random.sample(model.new_alignment_pairs, new_batch_size)
+#         new_pos_entities1 = [pair[0] for pair in samples]
+#         new_pos_entities2 = [pair[1] for pair in samples]
+#     else:
+#         new_pos_entities1 = [pos_entities1[0]]
+#         new_pos_entities2 = [pos_entities2[0]]
+#     start = time.time()  # for training time
+#     feed_dict = {model.pos_entities1: pos_entities1, model.pos_entities2: pos_entities2,
+#                  model.neg_entities1: neg_entities1, model.neg_entities2: neg_entities2,
+#                  model.new_pos_entities1: new_pos_entities1, model.new_pos_entities2: new_pos_entities2,
+#                  model.lr: lr}
+#     results = model.session.run(fetches=fetches, feed_dict=feed_dict)
+#     mapping_loss = results["link_loss"]
+#     end = time.time()
+#     return mapping_loss, round(end - start, 2)
+#
+#
+# def train_triple_1step(model, triples1, triples2, neighbours1, neighbours2, step, params, lr):
+#     triple_fetches = {"triple_loss": model.triple_loss, "train_op": model.triple_optimizer}
+#     if neighbours2 is None:
+#         batch_pos, batch_neg = generate_pos_neg_batch(triples1, triples2, step, params.batch_size,
+#                                                       multi=params.triple_nums_neg)
+#     else:
+#         batch_pos, batch_neg = generate_batch_via_neighbour(triples1, triples2, step, params.batch_size,
+#                                                             neighbours1, neighbours2, multi=params.triple_nums_neg)
+#     start = time.time()
+#     triple_feed_dict = {model.pos_hs: [x[0] for x in batch_pos],
+#                         model.pos_rs: [x[1] for x in batch_pos],
+#                         model.pos_ts: [x[2] for x in batch_pos],
+#                         model.neg_hs: [x[0] for x in batch_neg],
+#                         model.neg_rs: [x[1] for x in batch_neg],
+#                         model.neg_ts: [x[2] for x in batch_neg],
+#                         model.lr: lr}
+#     results = model.session.run(fetches=triple_fetches, feed_dict=triple_feed_dict)
+#     triple_loss = results["triple_loss"]
+#     end = time.time()
+#     return triple_loss, round(end - start, 2)
+#
+#
+# def semi_alignment(model: HyperKA, params):
+#     print()
+#     t = time.time()
+#     refs1_embed = model.eval_output_embed(model.ref_ent1, is_map=True)
+#     refs2_embed = model.eval_output_embed(model.ref_ent2, is_map=False)
+#     sim_mat = sim_handler_hyperbolic(refs1_embed, refs2_embed, 5, params.nums_threads)
+#     sim_mat = normalization(sim_mat)
+#     # temp_sim_th = (np.mean(sim_mat) + np.max(sim_mat)) / 2
+#     # sim_th = (params.sim_th + temp_sim_th) / 2
+#     # print("min, mean, and max of sim mat, sim_th = ", np.min(sim_mat), np.mean(sim_mat), np.max(sim_mat), sim_th)
+#     sim_th = params.sim_th
+#     new_alignment, entities1, entities2 = bootstrapping(sim_mat, model.ref_ent1, model.ref_ent2, model.new_alignment,
+#                                                         sim_th, params.nearest_k, is_edit=True,
+#                                                         heuristic=params.heuristic)
+#     model.new_alignment = list(new_alignment)
+#     model.new_alignment_pairs = [(entities1[i], entities2[i]) for i in range(len(entities1))]
+#     print("semi-supervised alignment costs time = {:.3f} s\n".format(time.time() - t))
+#
+# def generate_link_batch(model: HyperKA, align_batch_size, nums_neg):
+#     assert align_batch_size <= len(model.sup_ent1)
+#     pos_links = random.sample(model.sup_links, align_batch_size)
+#     neg_links = list()
+#
+#     for i in range(nums_neg // 2):
+#         neg_ent1 = random.sample(model.sup_ent1 + model.ref_ent1, align_batch_size)
+#         neg_ent2 = random.sample(model.sup_ent2 + model.ref_ent2, align_batch_size)
+#         neg_links.extend([(pos_links[i][0], neg_ent2[i]) for i in range(align_batch_size)])
+#         neg_links.extend([(neg_ent1[i], pos_links[i][1]) for i in range(align_batch_size)])
+#
+#     neg_links = set(neg_links) - set(model.sup_links) - set(model.self_links)
+#     return pos_links, list(neg_links)
 
 def get_transe_model(folder, kge_model, params):
     print("data folder:", folder)
