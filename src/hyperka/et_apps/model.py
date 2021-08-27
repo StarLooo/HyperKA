@@ -22,7 +22,7 @@ class GCNLayer(nn.Module):
         self.weight_matrix = nn.Parameter(
             nn.init.xavier_uniform_(torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True)))
         if has_bias:
-            self.bias_vec = nn.Parameter(torch.zeros(output_dim, dtype=torch.float64, requires_grad=True))
+            self.bias_vec = nn.Parameter(torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True))
         else:
             # TODO: 不知道这里register_parameter是否是多余的
             self.register_parameter("bias_vec", None)
@@ -310,19 +310,17 @@ class HyperKA(nn.Module):
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
         # 进行论文中所说的图卷积
         self._graph_convolution()
-        # ins_embeddings和onto_embeddings卷积后得到的嵌入向量
-        ins_embeddings = self.ins_ent_embeddings_output_list[-1]
-        onto_embeddings = self.onto_ent_embeddings_output_list[-1]
+        # ins_ent_embeddings和onto_ent_embeddings卷积后得到的嵌入向量
+        ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]
+        onto_ent_embeddings = self.onto_ent_embeddings_output_list[-1]
         if self.args.combine:
-            ins_embeddings = self.poincare.mobius_addition(ins_embeddings, self.ins_ent_embeddings_output_list[0])
-            onto_embeddings = self.poincare.mobius_addition(onto_embeddings, self.onto_ent_embeddings_output_list[0])
+            ins_ent_embeddings = self.poincare.hyperbolic_projection(
+                self.poincare.mobius_addition(ins_ent_embeddings, self.ins_ent_embeddings_output_list[0]))
+            onto_ent_embeddings = self.poincare.hyperbolic_projection(
+                self.poincare.mobius_addition(onto_ent_embeddings, self.onto_ent_embeddings_output_list[0]))
 
         self._trans_mapping_pos_neg_batch(mapping_pos_neg_batch)
-        # 这一段是不是与_generate_parameters中重复了？
-        ins_ent_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
-        ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
-        onto_ent_embeddings = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
-        onto_rel_embeddings = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
+
         link_phs_embeds = self.poincare.hyperbolic_projection(
             F.embedding(input=self.link_pos_h, weight=ins_ent_embeddings))
         link_pts_embeds = self.poincare.hyperbolic_projection(
