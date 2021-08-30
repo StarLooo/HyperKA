@@ -50,6 +50,7 @@ if __name__ == '__main__':
     k = 5
     assert args.epochs % k == 0
     num_iteration = args.epochs // k  # 循环次数
+
     for iteration in range(num_iteration):
         print("iteration:", iteration + 1)
         # 每次循环训练k个epochs

@@ -262,9 +262,9 @@ class HyperKA(nn.Module):
     # 计算mapping loss的内部函数
     def _compute_mapping_loss(self, mapped_link_phs_embeds, mapped_link_nhs_embeds,
                               link_pts_embeds, link_nts_embeds):
-        sup_distance = torch.sum(self.poincare.distance(mapped_link_phs_embeds, link_pts_embeds), dim=1)
+        pos_distance = torch.sum(self.poincare.distance(mapped_link_phs_embeds, link_pts_embeds), dim=1)
         neg_distance = torch.sum(self.poincare.distance(mapped_link_nhs_embeds, link_nts_embeds), dim=1)
-        pos_loss = torch.sum(torch.relu(sup_distance))
+        pos_loss = torch.sum(torch.relu(pos_distance))
         neg_loss = torch.sum(
             torch.relu(torch.tensor(data=self.args.neg_typing_margin, dtype=torch.float64) - neg_distance))
         mapping_loss = pos_loss + neg_loss
