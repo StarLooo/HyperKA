@@ -88,13 +88,6 @@ def add_sup_triples(triples1, triples2, sup_ent1, sup_ent2):
     return triples1, triples2
 
 
-def pair2file(file, pairs):
-    with open(file, 'w', encoding='utf8') as f:
-        for i, j in pairs:
-            f.write(str(i) + '\t' + str(j) + '\n')
-        f.close()
-
-
 # 从给定的文件中读取(h,r,t)三元组，返回给定文件中所有(h,r,t)三元组组成的set
 def read_triples(file):
     triples = set()
@@ -126,22 +119,28 @@ def read_aligned_pairs(file):
     return source_aligned_ents, target_aligned_ents
 
 
-def div_list(ls, n):
-    ls_len = len(ls)
-    if n <= 0 or 0 == ls_len:
+# (大致是)将list_input均分成num_div份
+def div_list(list_input, num_div):
+    assert num_div >= 1
+    list_len = len(list_input)
+    if num_div == 1:
+        return [list_input]
+    if list_len == 0:
         return []
-    if n > ls_len:
-        return []
-    elif n == ls_len:
-        return [[i] for i in ls]
+    # This may be confuse, so I change it to:
+    # if num_div > list_len:
+    #     return []
+    assert num_div <= list_len
+    if num_div == list_len:
+        return [[i] for i in list_input]
     else:
-        j = ls_len // n
-        k = ls_len % n
-        ls_return = []
-        for i in range(0, (n - 1) * j, j):
-            ls_return.append(ls[i:i + j])
-        ls_return.append(ls[(n - 1) * j:])
-        return ls_return
+        j = list_len // num_div
+        k = list_len % num_div
+        list_return = []
+        for i in range(0, (num_div - 1) * j, j):
+            list_return.append(list_input[i:i + j])
+        list_return.append(list_input[(num_div - 1) * j:])
+        return list_return
 
 
 def triples2ht_set(triples):
@@ -189,3 +188,10 @@ def generate_ent_attrs_sum(ent_num, ent_attrs1, ent_attrs2, attr_embeddings):
     print("shape of ent_attr_embeds: {}".format(ent_attrs_embeddings.shape))
     print("generating ent features costs: {:.3f} s".format(time.time() - t1))
     return ent_attrs_embeddings
+
+
+def pair2file(file, pairs):
+    with open(file, 'w', encoding='utf8') as f:
+        for i, j in pairs:
+            f.write(str(i) + '\t' + str(j) + '\n')
+        f.close()

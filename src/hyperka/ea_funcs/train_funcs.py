@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
 import gc
-import os
-import time
-import ray
-import numpy as np
+import math
 import random
-from sklearn import preprocessing
 import sys
-from hyperka.ea_apps.util import generate_adjacent_graph
+import time
+
+import numpy as np
+import ray
+from sklearn import preprocessing
+
 import hyperka.ea_funcs.utils as ut
-from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
+from hyperka.ea_apps.util import generate_adjacent_graph
 from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
+from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
 
 g = 1000000000
 
 
+# 获取模型
 def get_model(folder, kge_model, args):
     print("data folder:", folder)
 
@@ -104,7 +107,7 @@ def remove_unlinked_triples(triples, linked_ents):
 
 
 # 训练k个epoch
-def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_ent_num):
+def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_ent_num, iteration):
     neighbours_of_source_triples, neighbours_of_target_triples = dict(), dict()
     start = time.time()
     # TODO:trunc_source_ent_num的作用不是很明白，下面这个if语句内的逻辑不清楚
@@ -125,7 +128,7 @@ def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_
         print("epoch:", epoch + 1)
         triple_loss, mapping_loss, time_cost = train_1_epoch(model, source_triples, target_triples, args,
                                                              neighbours_of_source_triples,
-                                                             neighbours_of_target_triples)
+                                                             neighbours_of_target_triples, iteration)
         print("triple_loss(L1) = {:.3f}, mapping_loss(L2) = {:.3f}, "
               "time = {:.3f} s".format(triple_loss, mapping_loss, time_cost))
 
@@ -136,108 +139,190 @@ def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_
         gc.collect()
 
 
-# def train_1epoch(iteration, model: HyperKA, triples1, triples2, neighbours1, neighbours2, params, burn_in=5):
-#     triple_loss = 0
-#     mapping_loss = 0
-#     total_time = 0.0
-#     lr = params.learning_rate
-#     if iteration <= burn_in:
-#         lr /= 5
-#     steps = math.ceil((triples1.triples_num + triples2.triples_num) / params.batch_size)
-#     link_batch_size = math.ceil(len(model.sup_ent1) / steps)
-#     for step in range(steps):
-#         loss1, t1 = train_triple_1step(model, triples1, triples2, neighbours1, neighbours2, step, params, lr)
-#         triple_loss += loss1
-#         total_time += t1
-#         loss2, t2 = train_alignment_1step(model, link_batch_size, params.nums_neg, lr)
-#         mapping_loss += loss2
-#         total_time += t2
-#     triple_loss /= steps
-#     mapping_loss /= steps
-#     random.shuffle(triples1.triple_list)
-#     random.shuffle(triples2.triple_list)
-#     return triple_loss, mapping_loss, total_time
-#
-#
-# def train_alignment_1step(model: HyperKA, batch_size, neg_num, lr):
-#     fetches = {"link_loss": model.mapping_loss, "train_op": model.mapping_optimizer}
-#     pos_links, neg_links = generate_link_batch(model, batch_size, neg_num)
-#     pos_entities1 = [p[0] for p in pos_links]
-#     pos_entities2 = [p[1] for p in pos_links]
-#     neg_entities1 = [n[0] for n in neg_links]
-#     neg_entities2 = [n[1] for n in neg_links]
-#     if len(model.new_alignment_pairs) > 0:
-#         new_batch_size = math.ceil(len(model.new_alignment_pairs) / len(model.sup_ent1) * batch_size)
-#         samples = random.sample(model.new_alignment_pairs, new_batch_size)
-#         new_pos_entities1 = [pair[0] for pair in samples]
-#         new_pos_entities2 = [pair[1] for pair in samples]
-#     else:
-#         new_pos_entities1 = [pos_entities1[0]]
-#         new_pos_entities2 = [pos_entities2[0]]
-#     start = time.time()  # for training time
-#     feed_dict = {model.pos_entities1: pos_entities1, model.pos_entities2: pos_entities2,
-#                  model.neg_entities1: neg_entities1, model.neg_entities2: neg_entities2,
-#                  model.new_pos_entities1: new_pos_entities1, model.new_pos_entities2: new_pos_entities2,
-#                  model.lr: lr}
-#     results = model.session.run(fetches=fetches, feed_dict=feed_dict)
-#     mapping_loss = results["link_loss"]
-#     end = time.time()
-#     return mapping_loss, round(end - start, 2)
-#
-#
-# def train_triple_1step(model, triples1, triples2, neighbours1, neighbours2, step, params, lr):
-#     triple_fetches = {"triple_loss": model.triple_loss, "train_op": model.triple_optimizer}
-#     if neighbours2 is None:
-#         batch_pos, batch_neg = generate_pos_neg_batch(triples1, triples2, step, params.batch_size,
-#                                                       multi=params.triple_nums_neg)
-#     else:
-#         batch_pos, batch_neg = generate_batch_via_neighbour(triples1, triples2, step, params.batch_size,
-#                                                             neighbours1, neighbours2, multi=params.triple_nums_neg)
-#     start = time.time()
-#     triple_feed_dict = {model.pos_hs: [x[0] for x in batch_pos],
-#                         model.pos_rs: [x[1] for x in batch_pos],
-#                         model.pos_ts: [x[2] for x in batch_pos],
-#                         model.neg_hs: [x[0] for x in batch_neg],
-#                         model.neg_rs: [x[1] for x in batch_neg],
-#                         model.neg_ts: [x[2] for x in batch_neg],
-#                         model.lr: lr}
-#     results = model.session.run(fetches=triple_fetches, feed_dict=triple_feed_dict)
-#     triple_loss = results["triple_loss"]
-#     end = time.time()
-#     return triple_loss, round(end - start, 2)
-#
-#
-# def semi_alignment(model: HyperKA, params):
-#     print()
-#     t = time.time()
-#     refs1_embed = model.eval_output_embed(model.ref_ent1, is_map=True)
-#     refs2_embed = model.eval_output_embed(model.ref_ent2, is_map=False)
-#     sim_mat = sim_handler_hyperbolic(refs1_embed, refs2_embed, 5, params.nums_threads)
-#     sim_mat = normalization(sim_mat)
-#     # temp_sim_th = (np.mean(sim_mat) + np.max(sim_mat)) / 2
-#     # sim_th = (params.sim_th + temp_sim_th) / 2
-#     # print("min, mean, and max of sim mat, sim_th = ", np.min(sim_mat), np.mean(sim_mat), np.max(sim_mat), sim_th)
-#     sim_th = params.sim_th
-#     new_alignment, entities1, entities2 = bootstrapping(sim_mat, model.ref_ent1, model.ref_ent2, model.new_alignment,
-#                                                         sim_th, params.nearest_k, is_edit=True,
-#                                                         heuristic=params.heuristic)
-#     model.new_alignment = list(new_alignment)
-#     model.new_alignment_pairs = [(entities1[i], entities2[i]) for i in range(len(entities1))]
-#     print("semi-supervised alignment costs time = {:.3f} s\n".format(time.time() - t))
-#
-# def generate_link_batch(model: HyperKA, align_batch_size, nums_neg):
-#     assert align_batch_size <= len(model.sup_ent1)
-#     pos_links = random.sample(model.sup_links, align_batch_size)
-#     neg_links = list()
-#
-#     for i in range(nums_neg // 2):
-#         neg_ent1 = random.sample(model.sup_ent1 + model.ref_ent1, align_batch_size)
-#         neg_ent2 = random.sample(model.sup_ent2 + model.ref_ent2, align_batch_size)
-#         neg_links.extend([(pos_links[i][0], neg_ent2[i]) for i in range(align_batch_size)])
-#         neg_links.extend([(neg_ent1[i], pos_links[i][1]) for i in range(align_batch_size)])
-#
-#     neg_links = set(neg_links) - set(model.sup_links) - set(model.self_links)
-#     return pos_links, list(neg_links)
+# 训练1个epoch
+def train_1_epoch(model, source_triples, target_triples, args, neighbours_of_source_triples,
+                  neighbours_of_target_triples, iteration, burn_in=5):
+    lr = args.learning_rate
+    if iteration <= burn_in:
+        lr /= 5  # 该开始的几个iteration学习率要调小点
+    triple_loss, mapping_loss = 0, 0
+    start = time.time()
+    # 一个epoch需要跑steps部‍，每一步跑batch_size大小的数据
+    steps = math.ceil((source_triples.triples_num + target_triples.triples_num) / args.batch_size)
+    print("steps per epoch:", steps)
+    mapping_batch_size = math.ceil(len(model.sup_source_aligned_ents) / steps)
+    for step in range(steps):
+        # if step % 5 == 0:
+        #     print("\tstep:", step + 1)
+        triple_step_loss, triple_step_time = train_triple_1_step(model, source_triples, target_triples,
+                                                                 neighbours_of_source_triples,
+                                                                 neighbours_of_target_triples, step, args, lr)
+        triple_loss += triple_step_loss
+        mapping_step_loss, mapping_step_time = train_mapping_1_step(model, mapping_batch_size,
+                                                                    args.mapping_neg_nums,
+                                                                    lr)
+        mapping_loss += mapping_step_loss
+    triple_loss /= steps
+    mapping_loss /= steps
+    random.shuffle(source_triples.triple_list)
+    random.shuffle(target_triples.triple_list)
+    end = time.time()
+    return triple_loss, mapping_loss, round(end - start, 2)
+
+
+# 根据triple loss训练一步
+def train_triple_1_step(model, source_triples, target_triples, neighbours_of_source_triples,
+                        neighbours_of_target_triples, step, args, lr):
+    start = time.time()
+    if neighbours_of_target_triples is None:
+        pos_batch, neg_batch = generate_triple_pos_neg_batch(source_triples, target_triples, step, args.batch_size,
+                                                             args.triple_neg_nums)
+    else:
+        pos_batch, neg_batch = generate_triple_batch_via_neighbour(source_triples, target_triples, step,
+                                                                   args.batch_size,
+                                                                   neighbours_of_source_triples,
+                                                                   neighbours_of_target_triples,
+                                                                   args.triple_neg_nums)
+
+    triple_pos_neg_batch = [pos_batch, neg_batch, lr]
+    triple_loss = model.optimize_triple_loss(triple_pos_neg_batch).data
+
+    end = time.time()
+    return triple_loss, round(end - start, 2)
+
+
+# 根据mapping loss训练一步
+def train_mapping_1_step(model, mapping_batch_size, mapping_neg_nums, lr):
+    start = time.time()
+    pos_batch, neg_batch = generate_mapping_pos_neg_batch(model, mapping_batch_size, mapping_neg_nums)
+
+    pos_h = [p[0] for p in pos_batch]
+    pos_t = [p[1] for p in pos_batch]
+    neg_h = [n[0] for n in neg_batch]
+    neg_t = [n[1] for n in neg_batch]
+
+    # TODO: new_alignment_pairs作用未知
+    if len(model.new_alignment_pairs) > 0:
+        new_batch_size = math.ceil(
+            len(model.new_alignment_pairs) / len(model.sup_source_aligned_ents) * mapping_batch_size)
+        samples = random.sample(model.new_alignment_pairs, new_batch_size)
+        new_pos_h = [pair[0] for pair in samples]
+        new_pos_t = [pair[1] for pair in samples]
+    else:
+        new_pos_h = [pos_h[0]]
+        new_pos_t = [pos_t[0]]
+
+    mapping_pos_neg_batch = [pos_h, pos_t, neg_h, neg_t, new_pos_h, new_pos_h, lr]
+
+    mapping_loss = model.optimize_mapping_loss(mapping_pos_neg_batch).data
+
+    end = time.time()
+    return mapping_loss, round(end - start, 2)
+
+
+# 通过邻居信息生成triple batch(包含neg负例和pos正例)
+def generate_triple_batch_via_neighbour(source_triples, target_triples, step, batch_size, neighbours_of_source_triples,
+                                        neighbours_of_target_triples, triple_neg_nums):
+    assert triple_neg_nums >= 1
+    pos_triples_1, pos_triples_2 = generate_pos_triples(source_triples.triple_list, target_triples.triple_list, step,
+                                                        batch_size)
+
+    pos_batch = pos_triples_1 + pos_triples_2
+
+    neg_triples = list()
+    neg_triples.extend(trunc_sampling_multi(pos_triples_1, source_triples.triples, neighbours_of_source_triples,
+                                            source_triples.ent_list, triple_neg_nums))
+    neg_triples.extend(trunc_sampling_multi(pos_triples_2, target_triples.triples, neighbours_of_target_triples,
+                                            target_triples.ent_list, triple_neg_nums))
+    neg_batch = neg_triples
+    return pos_batch, neg_batch
+
+
+# 生成triple batch(包含neg负例和pos正例)
+def generate_triple_pos_neg_batch(source_triples, target_triples, step, batch_size, triple_neg_nums=1):
+    assert triple_neg_nums >= 1
+
+    pos_triples_1, pos_triples_2 = generate_pos_triples(source_triples.triple_list, target_triples.triple_list, step,
+                                                        batch_size)
+    pos_batch = pos_triples_1 + pos_triples_2
+
+    neg_triples = list()
+    neg_triples.extend(generate_neg_triples(pos_triples_1, source_triples, triple_neg_nums))
+    neg_triples.extend(generate_neg_triples(pos_triples_2, target_triples, triple_neg_nums))
+
+    neg_batch = neg_triples
+    return pos_batch, neg_batch
+
+
+# 生成pos triples
+def generate_pos_triples(source_triples_list, target_triples_list, step, batch_size):
+    num1 = int(len(source_triples_list) / (len(source_triples_list) + len(target_triples_list)) * batch_size)
+    num2 = batch_size - num1
+    start1 = step * num1
+    start2 = step * num2
+    end1 = start1 + num1
+    end2 = start2 + num2
+    if end1 > len(source_triples_list):
+        end1 = len(source_triples_list)
+    if end2 > len(target_triples_list):
+        end2 = len(target_triples_list)
+    pos_triples_1 = source_triples_list[start1: end1]
+    pos_triples_2 = target_triples_list[start2: end2]
+    return pos_triples_1, pos_triples_2
+
+
+# 生成neg triples
+def generate_neg_triples(pos_triples, all_triples, triple_neg_nums):
+    all_triples_set = all_triples.triples
+    ent_list = all_triples.ent_list
+    neg_triples = list()
+    for (h, r, t) in pos_triples:
+        choice = random.randint(0, 999)
+        if choice < 500:
+            neg_h_list = random.sample(ent_list, triple_neg_nums)
+            neg_triples.extend([(neg_h, r, t) for neg_h in neg_h_list])
+        elif choice >= 500:
+            neg_t_list = random.sample(ent_list, triple_neg_nums)
+            neg_triples.extend([(h, r, neg_t) for neg_t in neg_t_list])
+    neg_triples = list(set(neg_triples) - all_triples)
+    return neg_triples
+
+
+# 生成neg triples
+def trunc_sampling_multi(pos_triples, all_triples, neighbours_of_triples, ent_list, triple_nums_neg):
+    neg_triples = list()
+    for (h, r, t) in pos_triples:
+        choice = random.randint(0, 999)
+        if choice < 500:
+            candidates = neighbours_of_triples.get(h, ent_list)
+            neg_h_list = random.sample(candidates, triple_nums_neg)
+            temp_neg_triples = [(neg_h, r, t) for neg_h in neg_h_list]
+            neg_triples.extend(temp_neg_triples)
+        elif choice >= 500:
+            candidates = neighbours_of_triples.get(t, ent_list)
+            neg_t_list = random.sample(candidates, triple_nums_neg)
+            temp_neg_triples = [(h, r, neg_t) for neg_t in neg_t_list]
+            neg_triples.extend(temp_neg_triples)
+    # TODO:为什么源码中这里不需要去除掉all_triples呢？
+    neg_triples = list(set(neg_triples) - all_triples)
+    return neg_triples
+
+
+# 生成mapping batch(包含neg负例和pos正例)
+def generate_mapping_pos_neg_batch(model, mapping_batch_size, mapping_neg_nums):
+    assert mapping_batch_size <= len(model.sup_source_aligned_ents)
+    pos_batch = random.sample(model.sup_aligned_ents_pairs, mapping_batch_size)
+    neg_batch = list()
+    # sup_source_aligned_ents, sup_target_aligned_ents,ref_source_aligned_ents, ref_target_aligned_ents
+    for i in range(mapping_neg_nums // 2):
+        neg_h_list = random.sample(model.sup_source_aligned_ents + model.ref_source_aligned_ents, mapping_batch_size)
+        neg_t_list = random.sample(model.sup_target_aligned_ents + model.ref_target_aligned_ents, mapping_batch_size)
+        neg_batch.extend([(pos_batch[i][0], neg_t_list[i]) for i in range(mapping_batch_size)])
+        neg_batch.extend([(neg_h_list[i], pos_batch[i][1]) for i in range(mapping_batch_size)])
+
+    neg_batch = list(set(neg_batch) - set(model.sup_aligned_ents_pairs) - set(model.self_aligned_ents_pairs))
+    return pos_batch, neg_batch
+
 
 def get_transe_model(folder, kge_model, params):
     print("data folder:", folder)
@@ -251,11 +336,11 @@ def get_transe_model(folder, kge_model, params):
     return ori_triples1, ori_triples2, model
 
 
-@ray.remote(num_cpus=1)
+# @ray.remote(num_cpus=1)
 def find_neighbours(sub_ent_list, ent_list, sub_ent_embed, ent_embed, k, metric):
     dic = dict()
     if metric == 'euclidean':
-        sim_mat = np.matmul(sub_ent_embed, ent_embed.T)
+        sim_mat = np.matmul(sub_ent_embed, ent_embed.t())
         for i in range(sim_mat.shape[0]):
             sort_index = np.argpartition(-sim_mat[i, :], k + 1)
             dic[sub_ent_list[i]] = ent_list[sort_index[0:k + 1]].tolist()
@@ -276,8 +361,8 @@ def find_neighbours_multi_4link_(embed1, embed2, ent_list1, ent_list2, k, params
     sub_ent_embed_indexes = ut.div_list(np.array(range(len(ent_list1))), params.nums_threads)
     results = list()
     for i in range(len(sub_ent_list1)):
-        res = find_neighbours.remote(sub_ent_list1[i], np.array(ent_list2),
-                                     embed1[sub_ent_embed_indexes[i], :], embed2, k, metric)
+        res = find_neighbours(sub_ent_list1[i], np.array(ent_list2),
+                              embed1[sub_ent_embed_indexes[i], :], embed2, k, metric)
         results.append(res)
     dic = dict()
     for res in ray.get(results):
@@ -286,7 +371,7 @@ def find_neighbours_multi_4link_(embed1, embed2, ent_list1, ent_list2, k, params
     return dic
 
 
-@ray.remote(num_cpus=1)
+# @ray.remote(num_cpus=1)
 def find_neighbours_from_sim_mat(ent_list_x, ent_list_y, sim_mat, k):
     dic = dict()
     for i in range(sim_mat.shape[0]):
@@ -301,8 +386,8 @@ def find_neighbours_multi_4link_from_sim(ent_list_x, ent_list_y, sim_mat, k, num
     dic = dict()
     rest = []
     for i in range(len(ent_list_x_tasks)):
-        res = find_neighbours_from_sim_mat.remote(ent_list_x_tasks[i], np.array(ent_list_y),
-                                                  sim_mat[ent_list_x_indexes[i], :], k)
+        res = find_neighbours_from_sim_mat(ent_list_x_tasks[i], np.array(ent_list_y),
+                                           sim_mat[ent_list_x_indexes[i], :], k)
         rest.append(res)
     for res in ray.get(rest):
         dic = ut.merge_dic(dic, res)
@@ -329,8 +414,8 @@ def find_neighbours_multi(embed, ent_list, k, nums_threads, metric='euclidean'):
         dic = dict()
         rest = []
         for i in range(len(ent_frags)):
-            res = find_neighbours.remote(ent_frags[i], np.array(ent_list), embed[ent_frag_indexes[i], :], embed,
-                                         k, metric)
+            res = find_neighbours(ent_frags[i], np.array(ent_list), embed[ent_frag_indexes[i], :], embed,
+                                  k, metric)
             rest.append(res)
         for res in ray.get(rest):
             dic = ut.merge_dic(dic, res)
@@ -341,6 +426,7 @@ def find_neighbours_multi(embed, ent_list, k, nums_threads, metric='euclidean'):
     return dic
 
 
+# TODO:不是很清楚这里是干嘛的
 def trunc_sampling(pos_triples, all_triples, dic, ent_list):
     neg_triples = list()
     for (h, r, t) in pos_triples:
@@ -361,105 +447,6 @@ def trunc_sampling(pos_triples, all_triples, dic, ent_list):
     return neg_triples
 
 
-def trunc_sampling_multi(pos_triples, all_triples, dic, ent_list, multi):
-    neg_triples = list()
-    for (h, r, t) in pos_triples:
-        choice = random.randint(0, 999)
-        if choice < 500:
-            candidates = dic.get(h, ent_list)
-            h2s = random.sample(candidates, multi)
-            temp_neg_triples = [(h2, r, t) for h2 in h2s]
-            neg_triples.extend(temp_neg_triples)
-        elif choice >= 500:
-            candidates = dic.get(t, ent_list)
-            t2s = random.sample(candidates, multi)
-            temp_neg_triples = [(h, r, t2) for t2 in t2s]
-            neg_triples.extend(temp_neg_triples)
-    # neg_triples = list(set(neg_triples) - all_triples)
-    return neg_triples
-
-
-def generate_batch_via_neighbour(triples1, triples2, step, batch_size, neighbours_dic1, neighbours_dic2, multi=1):
-    assert multi >= 1
-    pos_triples1, pos_triples2 = generate_pos_batch(triples1.triple_list, triples2.triple_list, step, batch_size)
-    neg_triples = list()
-    neg_triples.extend(trunc_sampling_multi(pos_triples1, triples1.triples, neighbours_dic1, triples1.ent_list, multi))
-    neg_triples.extend(trunc_sampling_multi(pos_triples2, triples2.triples, neighbours_dic2, triples2.ent_list, multi))
-    pos_triples1.extend(pos_triples2)
-    return pos_triples1, neg_triples
-
-
-def generate_pos_batch(triples1, triples2, step, batch_size):
-    num1 = int(len(triples1) / (len(triples1) + len(triples2)) * batch_size)
-    num2 = batch_size - num1
-    start1 = step * num1
-    start2 = step * num2
-    end1 = start1 + num1
-    end2 = start2 + num2
-    if end1 > len(triples1):
-        end1 = len(triples1)
-    if end2 > len(triples2):
-        end2 = len(triples2)
-    pos_triples1 = triples1[start1: end1]
-    pos_triples2 = triples2[start2: end2]
-    return pos_triples1, pos_triples2
-
-
-def generate_neg_triples(pos_triples, triples_data):
-    all_triples = triples_data.triples
-    entities = triples_data.ent_list
-    neg_triples = list()
-    for (h, r, t) in pos_triples:
-        h2, r2, t2 = h, r, t
-        while True:
-            choice = random.randint(0, 999)
-            if choice < 500:
-                h2 = random.sample(entities, 1)[0]
-            elif choice >= 500:
-                t2 = random.sample(entities, 1)[0]
-            if (h2, r2, t2) not in all_triples:
-                break
-        neg_triples.append((h2, r2, t2))
-    assert len(neg_triples) == len(pos_triples)
-    return neg_triples
-
-
-def generate_neg_triples_multi(pos_triples, triples_data, multi):
-    all_triples = triples_data.triples
-    entities = triples_data.ent_list
-    neg_triples = list()
-    for (h, r, t) in pos_triples:
-        choice = random.randint(0, 999)
-        if choice < 500:
-            h2s = random.sample(entities, multi)
-            neg_triples.extend([(h2, r, t) for h2 in h2s])
-        elif choice >= 500:
-            t2s = random.sample(entities, multi)
-            neg_triples.extend([(h, r, t2) for t2 in t2s])
-    neg_triples = list(set(neg_triples) - all_triples)
-    return neg_triples
-
-
-def generate_pos_neg_batch(triples1, triples2, step, batch_size, multi=1):
-    assert multi >= 1
-    pos_triples1, pos_triples2 = generate_pos_batch(triples1.triple_list, triples2.triple_list, step, batch_size)
-    neg_triples = list()
-    # for i in range(multi):
-    #     choice = random.randint(0, 999)
-    #     if choice < 500:
-    #         h = True
-    #     else:
-    #         h = False
-    #     # neg_triples.extend(generate_neg_triples_batch(pos_triples1, triples1, h))
-    #     # neg_triples.extend(generate_neg_triples_batch(pos_triples2, triples2, h))
-    #     neg_triples.extend(generate_neg_triples(pos_triples1, triples1))
-    #     neg_triples.extend(generate_neg_triples(pos_triples2, triples2))
-    neg_triples.extend(generate_neg_triples_multi(pos_triples1, triples1, multi))
-    neg_triples.extend(generate_neg_triples_multi(pos_triples2, triples2, multi))
-    pos_triples1.extend(pos_triples2)
-    return pos_triples1, neg_triples
-
-
 def generate_triples_of_latent_entities(triples1, triples2, entities1, entites2):
     assert len(entities1) == len(entites2)
     newly_triples1, newly_triples2 = list(), list()
@@ -477,3 +464,21 @@ def generate_newly_triples(ent1, ent2, rt_dict1, hr_dict1):
     for h, r in hr_dict1.get(ent1, set()):
         newly_triples.append((h, r, ent2))
     return newly_triples
+
+# def semi_alignment(model: HyperKA, params):
+#     print()
+#     t = time.time()
+#     refs1_embed = model.eval_output_embed(model.ref_ent1, is_map=True)
+#     refs2_embed = model.eval_output_embed(model.ref_ent2, is_map=False)
+#     sim_mat = sim_handler_hyperbolic(refs1_embed, refs2_embed, 5, params.nums_threads)
+#     sim_mat = normalization(sim_mat)
+#     # temp_sim_th = (np.mean(sim_mat) + np.max(sim_mat)) / 2
+#     # sim_th = (params.sim_th + temp_sim_th) / 2
+#     # print("min, mean, and max of sim mat, sim_th = ", np.min(sim_mat), np.mean(sim_mat), np.max(sim_mat), sim_th)
+#     sim_th = params.sim_th
+#     new_alignment, entities1, entities2 = bootstrapping(sim_mat, model.ref_ent1, model.ref_ent2, model.new_alignment,
+#                                                         sim_th, params.nearest_k, is_edit=True,
+#                                                         heuristic=params.heuristic)
+#     model.new_alignment = list(new_alignment)
+#     model.new_alignment_pairs = [(entities1[i], entities2[i]) for i in range(len(entities1))]
+#     print("semi-supervised alignment costs time = {:.3f} s\n".format(time.time() - t))
