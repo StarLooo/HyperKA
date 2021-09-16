@@ -7,25 +7,40 @@ import torch
 import torch.nn as nn
 
 
+def try_gpu(i=0):
+    """如果存在，则返回gpu(i)，否则返回cpu()。"""
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
+def try_all_gpus():
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]。"""
+    devices = [torch.device(f'cuda:{i}')
+               for i in range(torch.cuda.device_count())]
+    return devices if devices else [torch.device('cpu')]
+
+
 # 初始化嵌入向量
 def embed_init(size, name, method='xavier_uniform', data_type=torch.float64):
     # Xavier均匀分布(default)
     if method == 'xavier_uniform':
         print("init embeddings using", "xavier_uniform", "with size of", size)
         embeddings = nn.init.xavier_uniform_(
-            tensor=torch.empty(size=size, dtype=data_type, requires_grad=True))
+            tensor=torch.empty(size=size, dtype=data_type, requires_grad=True, device=try_gpu()))
 
     # 截断正态分布
     elif method == 'truncated_normal':
         print("init embeddings using", "truncated_normal", "with size of", size)
-        embeddings = nn.init.trunc_normal_(tensor=torch.empty(size=size, dtype=data_type, requires_grad=True),
-                                           mean=0, std=1.0 / math.sqrt(size[1]))
+        embeddings = nn.init.trunc_normal_(
+            tensor=torch.empty(size=size, dtype=data_type, requires_grad=True, device=try_gpu()), mean=0,
+            std=1.0 / math.sqrt(size[1]))
 
     # 均匀分布
     else:
         print("init embeddings using", "random_uniform", "with size of", size)
-        embeddings = nn.init.uniform_(tensor=torch.empty(size=size, dtype=data_type, requires_grad=True),
-                                      a=-0.001, b=0.001)
+        embeddings = nn.init.uniform_(
+            tensor=torch.empty(size=size, dtype=data_type, requires_grad=True, device=try_gpu()), a=-0.001, b=0.001)
 
     return embeddings
 
@@ -51,6 +66,7 @@ def sparse_to_tuple(sparse_matrix):
 
 
 # 对adjacent_graph进行对称正则化处理
+# TODO: 对称正则化处理的作用
 def normalize_adj(adjacent_graph):
     """Symmetrically normalize adjacency matrix."""
     adjacent_graph = sp.coo_matrix(adjacent_graph)
@@ -65,15 +81,15 @@ def normalize_adj(adjacent_graph):
 # preprocess_adjacent_graph的测试可以看看下方该.py文件的main函数
 def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
-    normalized_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
-    return sparse_to_tuple(normalized_adjacent_graph)
+    # TODO: 为什么这里要加上一个单位阵
+    processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
+    return sparse_to_tuple(processed_adjacent_graph)
 
 
 # 根据triples生成对应的无权无向图
 # TODO:该函数内部具体如何对图进行稀疏表示以及预处理的部分目前被当成黑箱处理,未来可以仔细研究一下
 def generate_no_weighted_adjacent_graph(total_ent_num, triples):
     start = time.time()
-    # edges中的key是某实体h的id,对应的value是与之相关(关系用r表示)的一系列实体t的id的set,其中(h,r,t)构成一个triples中的三元组
     edges = dict()
     for tripe in triples:
         if tripe[0] not in edges.keys():
@@ -87,7 +103,7 @@ def generate_no_weighted_adjacent_graph(total_ent_num, triples):
     row = list()
     col = list()
     for i in range(total_ent_num):
-        # 表示id为i的实体不属于该KG
+        # 表示id为i的实体并不在该KG对应的无向图中
         if i not in edges.keys():
             continue
         key = i
@@ -98,9 +114,9 @@ def generate_no_weighted_adjacent_graph(total_ent_num, triples):
         col.extend(list(values))
     data_len = len(row)
     data = np.ones(data_len)
-
+    # 进行稀疏化表示
     adjacent_graph = sp.coo_matrix((data, (row, col)), shape=(total_ent_num, total_ent_num))
-    # 经过preprocess_adjacent_graph后adjacent_graph已经是用tuple表示的了
+    # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
     adjacent_graph = preprocess_adjacent_graph(adjacent_graph)
 
     end = time.time()

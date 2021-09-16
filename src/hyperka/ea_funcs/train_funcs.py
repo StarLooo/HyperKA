@@ -12,7 +12,8 @@ from sklearn import preprocessing
 import hyperka.ea_funcs.utils as ut
 from hyperka.ea_apps.util import generate_adjacent_graph
 from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
-from hyperka.hyperbolic.metric import compute_hyperbolic_similarity
+from hyperka.ea_funcs.train_bp import bootstrapping
+from hyperka.hyperbolic.metric import compute_hyperbolic_similarity, normalization
 
 g = 1000000000
 
@@ -151,6 +152,7 @@ def train_1_epoch(model, source_triples, target_triples, args, neighbours_of_sou
     steps = math.ceil((source_triples.triples_num + target_triples.triples_num) / args.batch_size)
     print("steps per epoch:", steps)
     mapping_batch_size = math.ceil(len(model.sup_source_aligned_ents) / steps)
+    steps = 1
     for step in range(steps):
         # if step % 5 == 0:
         #     print("\tstep:", step + 1)
@@ -465,20 +467,26 @@ def generate_newly_triples(ent1, ent2, rt_dict1, hr_dict1):
         newly_triples.append((h, r, ent2))
     return newly_triples
 
-# def semi_alignment(model: HyperKA, params):
-#     print()
-#     t = time.time()
-#     refs1_embed = model.eval_output_embed(model.ref_ent1, is_map=True)
-#     refs2_embed = model.eval_output_embed(model.ref_ent2, is_map=False)
-#     sim_mat = sim_handler_hyperbolic(refs1_embed, refs2_embed, 5, params.nums_threads)
-#     sim_mat = normalization(sim_mat)
-#     # temp_sim_th = (np.mean(sim_mat) + np.max(sim_mat)) / 2
-#     # sim_th = (params.sim_th + temp_sim_th) / 2
-#     # print("min, mean, and max of sim mat, sim_th = ", np.min(sim_mat), np.mean(sim_mat), np.max(sim_mat), sim_th)
-#     sim_th = params.sim_th
-#     new_alignment, entities1, entities2 = bootstrapping(sim_mat, model.ref_ent1, model.ref_ent2, model.new_alignment,
-#                                                         sim_th, params.nearest_k, is_edit=True,
-#                                                         heuristic=params.heuristic)
-#     model.new_alignment = list(new_alignment)
-#     model.new_alignment_pairs = [(entities1[i], entities2[i]) for i in range(len(entities1))]
-#     print("semi-supervised alignment costs time = {:.3f} s\n".format(time.time() - t))
+
+# bootstrapping
+def semi_alignment(model, args):
+    print("semi_alignment begin...")
+    start = time.time()
+    ref_source_aligned_ents_embed = model.eval_output_embed(model.ref_source_aligned_ents, is_map=True)
+    ref_target_aligned_ents_embed = model.eval_output_embed(model.ref_target_aligned_ents, is_map=False)
+    sim_matrix = sim_handler_hyperbolic(ref_source_aligned_ents_embed, ref_target_aligned_ents_embed, 5,
+                                        args.nums_threads)
+    sim_matrix = normalization(sim_matrix)
+    # temp_sim_th = (np.mean(sim_mat) + np.max(sim_mat)) / 2
+    # sim_th = (params.sim_th + temp_sim_th) / 2
+    # print("min, mean, and max of sim mat, sim_th = ", np.min(sim_mat), np.mean(sim_mat), np.max(sim_mat), sim_th)
+    sim_th = args.sim_th
+    new_alignment, entities1, entities2 = bootstrapping(sim_matrix, model.ref_source_aligned_ents,
+                                                        model.ref_target_aligned_ents, model.new_alignment,
+                                                        sim_th, args.nearest_k, is_edit=True,
+                                                        heuristic=args.heuristic)
+    model.new_alignment = list(new_alignment)
+    model.new_alignment_pairs = [(entities1[i], entities2[i]) for i in range(len(entities1))]
+    end = time.time()
+    print("semi-supervised alignment costs time = {:.3f} s\n".format(end - start))
+    print("semi_alignment end.")

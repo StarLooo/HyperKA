@@ -100,6 +100,54 @@ def compute_hyperbolic_similarity_single(sub_embed1, embed2):
     return normalization(-dis_mat)
 
 
+# TODO：用于bootstrapping, 被semi_alignment函数调用，内部逻辑不是很清楚，暂时当成黑箱处理
+def sim_handler_hyperbolic(embed1, embed2, k, nums_threads):
+    print("sim_handler_hyperbolic begin...")
+    assert embed1.requires_grad is False and embed2.requires_grad is False
+    tasks = div_list(np.array(range(embed1.shape[0])), nums_threads)
+    # results_list = list()
+    # for task in tasks:
+    #     result = compute_hyperbolic_similarity(embed1[task, :], embed2)
+    #     results_list.append(result)
+    # sim_lists = list()
+    # for result in ray.get(results_list):
+    #     sim_lists.append(result)
+    sim_lists = list()
+    for task in tasks:
+        sim = compute_hyperbolic_similarity(embed1[task, :], embed2)
+        sim_lists.append(sim)
+    sim_matrix = np.concatenate(sim_lists, axis=0)
+    if k == 0:
+        return sim_matrix
+    csls1 = csls_neighbor_sim(sim_matrix, k, nums_threads)
+    csls2 = csls_neighbor_sim(sim_matrix.T, k, nums_threads)
+    csls_sim_mat = 2 * sim_matrix.T - csls1
+    csls_sim_mat = csls_sim_mat.T - csls2
+    del sim_matrix
+    gc.collect()
+    print("sim_handler_hyperbolic end")
+    return csls_sim_mat
+
+
+# TODO:被sim_handler_hyperbolic调用的计算双曲相似度的函数，内部逻辑不是很清楚，暂时当成黑箱处理
+# @ray.remote(num_cpus=1)
+def compute_hyperbolic_similarity(embeds1, embeds2):
+    print("compute_hyperbolic_similarity begin...")
+    x1, y1 = embeds1.shape  # <class 'numpy.ndarray'>
+    x2, y2 = embeds2.shape
+    assert y1 == y2
+    dist_vec_list = list()
+    for i in range(x1):
+        embed1 = embeds1[i, :]  # <class 'numpy.ndarray'> (y1,)
+        embed1 = np.reshape(embed1, (1, y1))  # (1, y1)
+        embed1 = np.repeat(embed1, x2, axis=0)  # (x2, y1)
+        dist_vec = compute_hyperbolic_distances(embed1, embeds2)
+        dist_vec_list.append(dist_vec)
+    dis_mat = np.row_stack(dist_vec_list)  # (x1, x2)
+    print("compute_hyperbolic_similarity end.")
+    return normalization(-dis_mat)
+
+
 # @ray.remote(num_cpus=1)
 def cal_rank(task, sim, top_k):
     mean = 0
@@ -147,6 +195,7 @@ def eval_alignment_mul(sim_mat, top_k, nums_threads, mess=""):
 
 
 def cal_rank_multi_embed(frags, dic, sub_embed, embed, top_k):
+    print("cal_rank_multi_embed begin...")
     mean = 0
     mrr = 0
     num = np.array([0 for k in top_k])
@@ -194,66 +243,34 @@ def cal_rank_multi_embed(frags, dic, sub_embed, embed, top_k):
 
     del sim_mat
     gc.collect()
+    print("cal_rank_multi_embed end.")
     return mean, mrr, num, mean1, mrr1, num1, prec_set
 
 
 # @ray.remote(num_cpus=1)
 def cal_csls_neighbor_sim(sim_mat, k):
+    print("cal_csls_neighbor_sim begin...")
     sorted_mat = -np.partition(-sim_mat, k + 1, axis=1)  # -np.sort(-sim_mat1)
     nearest_k = sorted_mat[:, 0:k]
     sim_values = np.mean(nearest_k, axis=1)
+    print("cal_csls_neighbor_sim end.")
     return sim_values
 
 
 def csls_neighbor_sim(sim_mat, k, nums_threads):
+    print("csls_neighbor_sim begin...")
     tasks = div_list(np.array(range(sim_mat.shape[0])), nums_threads)
     results = list()
     for task in tasks:
         res = cal_csls_neighbor_sim(sim_mat[task, :], k)
         results.append(res)
     sim_values = None
-    for res in ray.get(results):
+    for res in results:
         val = res
         if sim_values is None:
             sim_values = val
         else:
             sim_values = np.append(sim_values, val)
     assert sim_values.shape[0] == sim_mat.shape[0]
+    print("csls_neighbor_sim end.")
     return sim_values
-
-
-def sim_handler_hyperbolic(embed1, embed2, k, nums_threads):
-    tasks = div_list(np.array(range(embed1.shape[0])), nums_threads)
-    results = list()
-    for task in tasks:
-        res = compute_hyperbolic_similarity(embed1[task, :], embed2)
-        results.append(res)
-    sim_lists = list()
-    for res in ray.get(results):
-        sim_lists.append(res)
-    sim_mat = np.concatenate(sim_lists, axis=0)
-    if k == 0:
-        return sim_mat
-    csls1 = csls_neighbor_sim(sim_mat, k, nums_threads)
-    csls2 = csls_neighbor_sim(sim_mat.T, k, nums_threads)
-    csls_sim_mat = 2 * sim_mat.T - csls1
-    csls_sim_mat = csls_sim_mat.T - csls2
-    del sim_mat
-    gc.collect()
-    return csls_sim_mat
-
-
-# @ray.remote(num_cpus=1)
-def compute_hyperbolic_similarity(embeds1, embeds2):
-    x1, y1 = embeds1.shape  # <class 'numpy.ndarray'>
-    x2, y2 = embeds2.shape
-    assert y1 == y2
-    dist_vec_list = list()
-    for i in range(x1):
-        embed1 = embeds1[i, :]  # <class 'numpy.ndarray'> (y1,)
-        embed1 = np.reshape(embed1, (1, y1))  # (1, y1)
-        embed1 = np.repeat(embed1, x2, axis=0)  # (x2, y1)
-        dist_vec = compute_hyperbolic_distances(embed1, embeds2)
-        dist_vec_list.append(dist_vec)
-    dis_mat = np.row_stack(dist_vec_list)  # (x1, x2)
-    return normalization(-dis_mat)

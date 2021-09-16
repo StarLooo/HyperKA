@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 if __name__ == '__main__':
     t = torch.zeros(size=(3, 5))
+    print(t.T)
     print(t[2].shape)
     print(t[2, :].shape)
     print(t[2].unsqueeze(dim=0))

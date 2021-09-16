@@ -15,9 +15,11 @@ def get_model(folder, kge_model, args):
     print("read_input begin...")
     read_func = ut.read_input  # 用于读取输入的函数
     # insnet和onto的结构如下：
-    # [triples, train_ids_triples, test_ids_triples, total_ents_num, total_rels_num, total_triples_num]
+    # [all_ids_triples, train_ids_triples_set, test_ids_triples_set,
+    # total_ents_num, total_rels_num, total_triples_num]
     # instype的结构如下：
-    # [[train_heads_id_list, train_tails_id_list],[test_heads_id_list, test_tails_id_list, test_head_tails_id_list]]
+    # [[train_heads_ids_list, train_tails_ids_list],
+    # [test_heads_ids_list, test_tails_ids_list, test_head_tails_ids_list]]
     insnet, onto, instype = read_func(folder)
     print("read_input finished\n")
 

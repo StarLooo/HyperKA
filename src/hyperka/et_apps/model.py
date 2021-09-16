@@ -4,7 +4,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import hyperka.et_apps.util as ut
 from hyperka.et_apps.util import embed_init
 from hyperka.et_funcs.test_funcs import eval_type_hyperbolic
 from hyperka.hyperbolic.poincare import PoincareManifold
@@ -20,9 +20,11 @@ class GCNLayer(nn.Module):
         self.activation = activation
         self.adj = adj
         self.weight_matrix = nn.Parameter(
-            nn.init.xavier_uniform_(torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True)))
+            nn.init.xavier_uniform_(
+                torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
         if has_bias:
-            self.bias_vec = nn.Parameter(torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True))
+            self.bias_vec = nn.Parameter(
+                torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         else:
             # TODO: 不知道这里register_parameter是否是多余的
             self.register_parameter("bias_vec", None)
@@ -177,7 +179,7 @@ class HyperKA(nn.Module):
             print("init instance mapping matrix using", "orthogonal", "with size of", size)
             self.ins_mapping_matrix = nn.init.orthogonal_(
                 tensor=torch.empty(size=size, dtype=torch.float64,
-                                   requires_grad=True))
+                                   requires_grad=True, device=ut.try_gpu()))
             self.ins_mapping_matrix = nn.Parameter(self.ins_mapping_matrix)
 
     # 我自己加了这个函数，用于解决tf版本代码中placeholder和feed_dict翻译的问题

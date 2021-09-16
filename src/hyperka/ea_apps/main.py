@@ -3,7 +3,7 @@ import argparse
 import ast
 
 from hyperka.ea_apps.model import HyperKA
-from hyperka.ea_funcs.train_funcs import get_model, train_k_epochs
+from hyperka.ea_funcs.train_funcs import get_model, train_k_epochs, semi_alignment
 
 # import ray
 
@@ -17,7 +17,7 @@ from hyperka.ea_funcs.train_funcs import get_model, train_k_epochs
 g = 1024 * 1024
 # ray.init()
 
-parser = argparse.ArgumentParser(description='HyperKE4EA')
+parser = argparse.ArgumentParser(description='HyperKA_EA')
 parser.add_argument('--input', type=str, default='../../../dataset/dbp15k/zh_en/mtranse/0_3/')  # 路径
 parser.add_argument('--output', type=str, default='../../../output/results/')  # 路径
 
@@ -44,10 +44,12 @@ parser.add_argument('--test_interval', type=int, default=2)
 
 parser.add_argument('--sim_th', type=float, default=0.75)
 parser.add_argument('--nearest_k', type=int, default=200)
-parser.add_argument('--start_bp', type=int, default=40)
+parser.add_argument('--start_bp', type=int, default=1)
 parser.add_argument('--bp_param', type=float, default=0.05)
-parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # TODO:是否采用bootstrapping?
-parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
+# parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # TODO:是否采用bootstrapping?
+parser.add_argument('--is_bp', type=ast.literal_eval, default=True)
+# parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
+parser.add_argument('--heuristic', type=ast.literal_eval, default=False)
 parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否结合第0层和最后一层的嵌入
 
 # TODO:由于不明白bootstrapping，所以暂且只修改了不进行bootstrapping下的代码
@@ -67,16 +69,15 @@ if __name__ == '__main__':
     if args.is_bp:
         epochs_each_iteration = 5
     else:
-        epochs_each_iteration = 5
-        # epochs_each_iteration = 10
+        epochs_each_iteration = 1
     assert args.epochs % epochs_each_iteration == 0
     num_iteration = args.epochs // epochs_each_iteration  # 循环次数
     print("iteration num:", num_iteration)
-    for iteration in range(num_iteration):
-        print("iteration", iteration + 1)
+    for iteration in range(1, num_iteration + 1):
+        print("iteration", iteration)
         train_k_epochs(model, source_triples, target_triples, epochs_each_iteration, args, trunc_source_ent_num,
                        iteration)
-        model.test(k=0)
-        # if iteration >= args.start_bp and args.is_bp:
-        #     semi_alignment(model, args)
-    # model.test()
+        # model.test(k=0)
+        if iteration >= args.start_bp and args.is_bp:
+            semi_alignment(model, args)
+    model.test()

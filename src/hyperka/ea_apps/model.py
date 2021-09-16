@@ -364,6 +364,15 @@ class HyperKA(nn.Module):
         gc.collect()
         return hits1
 
+    def eval_output_embed(self, ents, is_map=False):
+        output_embeddings = self._graph_convolution_for_evaluation()
+        assert output_embeddings.requires_grad is False
+        embeds = F.embedding(input=torch.LongTensor(ents), weight=output_embeddings)
+        if is_map:
+            embeds = self.poincare.mobius_matmul(embeds, self.mapping_matrix.detach())
+        assert embeds.requires_grad is False
+        return embeds
+
 # def eval_ent_embeddings(self):
 #     ent_embeddings = self._graph_convolution_for_evaluation()
 #     return ent_embeddings.eval(session=self.session)
@@ -373,13 +382,3 @@ class HyperKA(nn.Module):
 #     embeds1 = tf.nn.embedding_lookup(ent_embeddings, self.kb1_entities)
 #     embeds2 = tf.nn.embedding_lookup(ent_embeddings, self.kb2_entities)
 #     return embeds1.eval(session=self.session), embeds2.eval(session=self.session)
-#
-#
-#
-# def eval_output_embed(self, index, is_map=False):
-#     output_embeddings = self._graph_convolution_for_evaluation()
-#     embeds = tf.nn.embedding_lookup(output_embeddings, index)
-#     if is_map:
-#         embeds = self.poincare.mobius_matmul(embeds, self.mapping_matrix)
-#     return embeds.eval(session=self.session)
-#
