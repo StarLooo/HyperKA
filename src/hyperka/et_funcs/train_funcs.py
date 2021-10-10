@@ -72,8 +72,8 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
     print("steps per epoch:", steps)
     link_batch_size = math.ceil(len(model.train_instype_head) / steps)
     for step in range(1, steps + 1):
-        # if step % 5 == 1:
-        #     print("\tstep:", step)
+        if step % 5 == 1:
+            print("\tstep:", step)
         triple_step_loss, triple_step_time = train_triple_1_step(model, ins_triples, onto_triples, step, args,
                                                                  neighbours_of_ins_triples, neighbours_of_onto_triples)
         triple_loss += triple_step_loss

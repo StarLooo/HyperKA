@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+
+import math
 import os
+import time
 
 import numpy as np
 import scipy.sparse as sp
-import time
-import math
 import torch
 import torch.nn as nn
 
@@ -84,16 +85,13 @@ def normalize_adj(adjacent_graph):
 def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     # TODO: 为什么这里要加上一个单位阵
-    # print("adjacent_graph.shape:",adjacent_graph.shape)
-    # print("adjacent_graph:",adjacent_graph)
-    # os.system("pause")
-    processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
+    # processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
+    processed_adjacent_graph = adjacent_graph  # GAT暂时先不做处理
     return sparse_to_tuple(processed_adjacent_graph)
 
 
-# 根据triples生成对应的无权无向图
-# TODO:该函数内部具体如何对图进行稀疏表示以及预处理的部分目前被当成黑箱处理,未来可以仔细研究一下
-def generate_no_weighted_adjacent_graph(total_ent_num, triples):
+# 根据triples生成对应的无权无向图,generate_graph的特例
+def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
     start = time.time()
     edges = dict()
     for tripe in triples:
@@ -119,6 +117,7 @@ def generate_no_weighted_adjacent_graph(total_ent_num, triples):
         col.extend(list(values))
     data_len = len(row)
     data = np.ones(data_len)
+
     # 进行稀疏化表示
     adjacent_graph = sp.coo_matrix((data, (row, col)), shape=(total_ent_num, total_ent_num))
     # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
@@ -129,9 +128,76 @@ def generate_no_weighted_adjacent_graph(total_ent_num, triples):
     return adjacent_graph
 
 
+# 根据triples生成对应的图(默认为无向无权图)
+# TODO:还有遗留的问题没解决，先用generate_no_weighted_undirected_adjacent_graph
+def generate_graph(total_ent_num, triples, is_undirected=True, is_weighted=False):
+    start = time.time()
+    edges = dict()
+
+    judge = dict()
+    for triple in triples:
+        h, r, t = triple
+        if (h, t) not in judge:
+            judge[(h, t)] = set()
+        judge[(h, t)].add(r)
+        if len(judge[(h, t)]) != 1:
+            print("h, t, rs:", h, t, judge[(h, t)])
+
+    os.system("pause")
+
+    for tripe in triples:
+        h, r, t = tripe
+        if h not in edges.keys():
+            edges[h] = set()
+        edges[h].add((t, r))
+        if is_undirected:
+            if t not in edges.keys():
+                edges[t] = set()
+            edges[t].add((h, r))
+    print("edges keys len:", len(edges))
+    cnt = 0
+    for key in edges.keys():
+        cnt += len(edges[key])
+    print(cnt)
+
+    # 用sp.coo_matrix()函数稀疏化表示
+    rows = list()
+    cols = list()
+    values = list()
+    for ent_id in range(total_ent_num):
+        # 表示id为i的实体并不在该KG对应的无向图中
+        if ent_id not in edges.keys():
+            continue
+        source = ent_id
+        targets_list = [element[0] for element in edges[source]]
+        if is_weighted:
+            values_list = [element[1] for element in edges[source]]
+        else:
+            values_list = np.ones(len(targets_list), dtype=int).tolist()
+        rows.extend((source * np.ones(len(targets_list), dtype=int)).tolist())
+        cols.extend(targets_list)
+        values.extend(values_list)
+
+    print("rows.len:", len(rows))
+    print("rows[:10]", rows[:10])
+    print("cols.len:", len(cols))
+    print("cols[:10]", cols[:10])
+    print("values.len:", len(values))
+    print("values[:10]", values[:10])
+    os.system("pause")
+    # 进行稀疏化表示
+    adjacent_graph = sp.coo_matrix((values, (rows, cols)), shape=(total_ent_num, total_ent_num))
+    # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
+    adjacent_graph = preprocess_adjacent_graph(adjacent_graph)
+
+    end = time.time()
+    print('generating KG costs time: {:.4f}s'.format(end - start))
+    return adjacent_graph
+
+
 # 根据triples生成对应的邻接图
 def generate_adjacent_graph(total_ents_num, triples):
-    return generate_no_weighted_adjacent_graph(total_ents_num, triples)
+    return generate_no_weighted_undirected_adjacent_graph(total_ents_num, triples)
 
 
 if __name__ == '__main__':

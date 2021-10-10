@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
 import time
 
 import torch
@@ -13,6 +12,7 @@ from hyperka.hyperbolic.poincare import PoincareManifold
 
 
 # TODO:因为没有理解adj所以对卷图积层的作用不是很明白
+# TODO:开始添加注意力机制
 class GCNLayer(nn.Module):
     def __init__(self, adj: torch.Tensor, input_dim: int, output_dim: int, layer_id: int, poincare: PoincareManifold,
                  has_bias: bool = True, activation: nn.Module = None):
@@ -21,6 +21,8 @@ class GCNLayer(nn.Module):
         self.has_bias = has_bias
         self.activation = activation
         self.adj = adj
+        self.n_entities = adj.shape[0]
+        # TODO: 加入注意力机制后还需要这个线性变换吗？
         self.weight_matrix = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
@@ -41,10 +43,33 @@ class GCNLayer(nn.Module):
         assert pre_sup_tangent.shape[1] == self.weight_matrix.shape[0]
         output = torch.mm(pre_sup_tangent, self.weight_matrix)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
-        print("adj:", "\n", self.adj)
-        os.system("pause")
-        output = torch.sparse.mm(self.adj, output)
-        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+        # print("adj.shape:", self.adj.shape)
+        # print("adj:", self.adj)
+        # print("adj.requires_grad:", self.adj.requires_grad)
+        # print("output.shape:", output.shape)
+        # output = torch.sparse.mm(self.adj, output)
+        # os.system("pause")
+
+        # 直接这么做会超内存
+        # exp_inner_product_matrix = torch.exp(torch.mm(output, output.t()))
+        neighbor_embeddings = torch.empty_like(output, device=ut.try_gpu(), requires_grad=False)
+        for i in range(self.n_entities):
+            exp_inner_product = torch.exp(torch.matmul(output[i, :], output.t())).data
+            assert exp_inner_product.requires_grad is False
+            exp_inner_product = exp_inner_product
+            mask = torch.index_select(self.adj, dim=0, index=torch.tensor(data=[i])).to_dense().reshape(self.n_entities)
+            # print("mask.shape:", mask.shape)
+            assert mask.shape == exp_inner_product.shape == (self.n_entities,)
+            mask_row_sum = torch.sum(torch.multiply(mask, exp_inner_product))
+            # print("mask_row_sum:", mask_row_sum)
+            alpha = torch.multiply(mask, exp_inner_product) / mask_row_sum
+            assert alpha.requires_grad is False
+            # print("alpha:", alpha)
+            # print("alpha row sum:", torch.sum(alpha))
+            neighbor_embeddings[i, :] = torch.matmul(output.t(), alpha)
+
+        # output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(neighbor_embeddings))
         if self.has_bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
             output = self.poincare.mobius_addition(output, bias_vec)
@@ -52,6 +77,7 @@ class GCNLayer(nn.Module):
         if self.activation is not None:
             output = self.activation(self.poincare.log_map_zero(output))
             output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+        assert output.requires_grad is True
         return output
 
 

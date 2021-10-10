@@ -1,8 +1,23 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    t1 = torch.tensor([1, -1])
+    t2 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]])
+    print(torch.matmul(t1, t2))
+    t2 = t2.reshape((8,1))
+    print(t2)
+    s = {(1, 2), (3, 4), (5, 6)}
+    c = [element[0] for element in s]
+    v = [element[1] for element in s]
+    print(c)
+    print(v)
+    s.add((5, 2))
+    print(s)
+    os.system("pause")
     t = torch.zeros(size=(3, 5))
     print(t.T)
     print(t[2].shape)
