@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import multiprocessing
-
 import gc
 import numpy as np
 import time

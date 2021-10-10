@@ -50,8 +50,8 @@ def train_k_epochs(model, ins_triples, onto_triples, k, args, truncated_ins_num,
         end = time.time()
         print("generate nearest-{}-&-{} neighbours: {:.3f} s".format(truncated_ins_num, truncated_onto_num,
                                                                      end - start))
-    for epoch in range(k):
-        print("epoch:", epoch + 1)
+    for epoch in range(1, k + 1):
+        print("epoch:", epoch)
         triple_loss, mapping_loss, time_cost = train_1_epoch(model, ins_triples, onto_triples, args,
                                                              neighbours_of_ins_triples,
                                                              neighbours_of_onto_triples)
@@ -67,13 +67,13 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
                   neighbours_of_ins_triples, neighbours_of_onto_triples):
     triple_loss, mapping_loss = 0, 0
     start = time.time()
-    # 一个epoch需要跑steps部‍，每一步跑batch_size大小的数据
+    # 一个epoch需要跑steps步，每一步跑batch_size大小的数据
     steps = math.ceil(ins_triples.triples_num / args.batch_size)
     print("steps per epoch:", steps)
     link_batch_size = math.ceil(len(model.train_instype_head) / steps)
-    for step in range(steps):
-        # if step % 5 == 0:
-        #     print("\tstep:", step + 1)
+    for step in range(1, steps + 1):
+        # if step % 5 == 1:
+        #     print("\tstep:", step)
         triple_step_loss, triple_step_time = train_triple_1_step(model, ins_triples, onto_triples, step, args,
                                                                  neighbours_of_ins_triples, neighbours_of_onto_triples)
         triple_loss += triple_step_loss
@@ -81,6 +81,7 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
         mapping_loss += mapping_step_loss
     triple_loss /= steps
     mapping_loss /= steps
+    # 一个epoch跑完后对ins_triples_list和onto_triples_list重新排列，这样使下一个epoch时构造的batch与这个epoch的不同
     random.shuffle(ins_triples.triple_list)
     random.shuffle(onto_triples.triple_list)
     end = time.time()
@@ -108,13 +109,14 @@ def train_triple_1_step(model, ins_triples, onto_triples, step, args,
 # TODO:这里面构造负例的具体方法还没有理清楚,并且内部变量命名也比较混乱，暂且命名做出一定修改当成黑箱
 def train_mapping_1_step(model, link_batch_size, mapping_neg_nums=20):
     start = time.time()
-
+    # 从model.train_instype_link中选择link_batch_size个实例-类型二元组(ent, type)来作为pos_link_list
     pos_link_list = random.sample(model.train_instype_link, link_batch_size)
     link_pos_h = [pos_link[0] for pos_link in pos_link_list]
     link_pos_t = [pos_link[1] for pos_link in pos_link_list]
 
     neg_link_list = list()
     for i in range(mapping_neg_nums):
+        # 随机选择model中所有type中的link_batch_size个组成neg_tails
         neg_tails = random.sample(model.train_instype_tail + model.test_instype_tail, link_batch_size)
         neg_link_list.extend([(link_pos_h[i], neg_tails[i]) for i in range(link_batch_size)])
     neg_link_list = list(set(neg_link_list) - model.train_instype_set)
@@ -129,26 +131,28 @@ def train_mapping_1_step(model, link_batch_size, mapping_neg_nums=20):
     return mapping_loss, round(end - start, 2)
 
 
-# 生成pos triples
-def generate_pos_triples(ins_triples, onto_triples, step, batch_size):
+# 生成某一个epoch的第step步的pos triples
+def generate_pos_triples(ins_triples_list, onto_triples_list, step, batch_size):
+    # 每一个step需要num1个ins_triples_list中的正例triples和num2个onto_triples_list中的正例triples
     num1 = batch_size
-    num2 = int(batch_size / len(ins_triples) * len(onto_triples))
+    num2 = int(batch_size / len(ins_triples_list) * len(onto_triples_list))
     start1 = step * num1
     start2 = step * num2
     end1 = start1 + num1
     end2 = start2 + num2
-    if end1 > len(ins_triples):
-        end1 = len(ins_triples)
-    if end2 > len(onto_triples):
-        end2 = len(onto_triples)
-    pos_ins_triples = ins_triples[start1: end1]
-    pos_onto_triples = onto_triples[start2: end2]
+    if end1 > len(ins_triples_list):
+        end1 = len(ins_triples_list)
+    if end2 > len(onto_triples_list):
+        end2 = len(onto_triples_list)
+    pos_ins_triples = ins_triples_list[start1: end1]
+    pos_onto_triples = onto_triples_list[start2: end2]
+    # TODO: 这里的特判的意图不是很清楚
     if len(pos_onto_triples) == 0:
-        pos_onto_triples = onto_triples[0:num2]
+        pos_onto_triples = onto_triples_list[0:num2]
     return pos_ins_triples, pos_onto_triples
 
 
-# 生成neg triples
+# 生成某一个epoch的第step步的neg triples
 def generate_neg_triples(pos_triples, all_triples, triple_neg_nums, neighbours):
     all_triples_set = all_triples.triples
     ent_list = all_triples.ent_list
@@ -156,10 +160,16 @@ def generate_neg_triples(pos_triples, all_triples, triple_neg_nums, neighbours):
     for (h, r, t) in pos_triples:
         choice = random.randint(0, 999)
         if choice < 500:
+            # 对每一个pos_triple中的pos triple(设为(h,r,t))，
+            # 从pos triple的头部h的邻居中中选取triple_neg_nums个实体来作负例的neg_head
+            # 若h的邻居为空，则默认从所有实体(即ent_list)中选择
             candidates = neighbours.get(h, ent_list)
             neg_samples = random.sample(candidates, triple_neg_nums)
             neg_triples.extend([(neg_head, r, t) for neg_head in neg_samples])
         elif choice >= 500:
+            # 对每一个pos_triple中的pos triple(设为(h,r,t))，
+            # 从pos triple的尾部t的邻居中中选取triple_neg_nums个实体来作负例的neg_tail
+            # 若t的邻居为空，则默认从所有实体(即ent_list)中选择
             candidates = neighbours.get(t, ent_list)
             neg_samples = random.sample(candidates, triple_neg_nums)
             neg_triples.extend([(h, r, neg_tail) for neg_tail in neg_samples])
@@ -167,7 +177,7 @@ def generate_neg_triples(pos_triples, all_triples, triple_neg_nums, neighbours):
     return neg_triples
 
 
-# 生成triple batch(包含neg负例和pos正例)
+# 生成某一个epoch的第step步的triple batch(包含neg负例和pos正例)
 def generate_pos_neg_triple_batch(ins_triples, onto_triples, step, batch_size, triple_neg_nums,
                                   neighbours_of_ins_triples=None, neighbours_of_onto_triples=None):
     assert triple_neg_nums >= 1

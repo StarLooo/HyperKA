@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import os
+
 import numpy as np
 import scipy.sparse as sp
 import time
@@ -82,6 +84,9 @@ def normalize_adj(adjacent_graph):
 def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     # TODO: 为什么这里要加上一个单位阵
+    # print("adjacent_graph.shape:",adjacent_graph.shape)
+    # print("adjacent_graph:",adjacent_graph)
+    # os.system("pause")
     processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
     return sparse_to_tuple(processed_adjacent_graph)
 

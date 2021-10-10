@@ -54,7 +54,7 @@ if __name__ == '__main__':
     num_iteration = args.epochs // k  # 循环次数
     for iteration in range(1, num_iteration + 1):
         print("iteration:", iteration)
-        # 每次循环训练k个epochs
+        # 每个iteration训练k个epochs
         train_k_epochs(model, ins_triples, onto_triples, k, args, truncated_ins_num, truncated_onto_num)
         h1 = model.test()
         print("h1:", h1, '\n')

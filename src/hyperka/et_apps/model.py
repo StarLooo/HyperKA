@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+import os
 import time
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 import hyperka.et_apps.util as ut
 from hyperka.et_apps.util import embed_init
 from hyperka.et_funcs.test_funcs import eval_type_hyperbolic
@@ -39,6 +41,8 @@ class GCNLayer(nn.Module):
         assert pre_sup_tangent.shape[1] == self.weight_matrix.shape[0]
         output = torch.mm(pre_sup_tangent, self.weight_matrix)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
+        print("adj:", "\n", self.adj)
+        os.system("pause")
         output = torch.sparse.mm(self.adj, output)
         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
         if self.has_bias:
