@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import time
 
 import torch
@@ -52,21 +53,33 @@ class GCNLayer(nn.Module):
 
         # 直接这么做会超内存
         # exp_inner_product_matrix = torch.exp(torch.mm(output, output.t()))
-        neighbor_embeddings = torch.empty_like(output, device=ut.try_gpu(), requires_grad=False)
-        for i in range(self.n_entities):
-            exp_inner_product = torch.exp(torch.matmul(output[i, :], output.t())).data
-            assert exp_inner_product.requires_grad is False
-            exp_inner_product = exp_inner_product
-            mask = torch.index_select(self.adj, dim=0, index=torch.tensor(data=[i])).to_dense().reshape(self.n_entities)
-            # print("mask.shape:", mask.shape)
-            assert mask.shape == exp_inner_product.shape == (self.n_entities,)
-            mask_row_sum = torch.sum(torch.multiply(mask, exp_inner_product))
-            # print("mask_row_sum:", mask_row_sum)
-            alpha = torch.multiply(mask, exp_inner_product) / mask_row_sum
-            assert alpha.requires_grad is False
-            # print("alpha:", alpha)
-            # print("alpha row sum:", torch.sum(alpha))
-            neighbor_embeddings[i, :] = torch.matmul(output.t(), alpha)
+
+        # indices = self.adj.indices()
+        # values = [torch.dot(output[indices[0][i], :], output[indices[1][i], :]) for i in range(indices.shape[1])]
+        # alpha_matrix = torch.sparse_coo_tensor(indices=indices, values=values,
+        #                                        size=(self.n_entities, self.n_entities),
+        #                                        requires_grad=False)
+        alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
+        # print("alpha_matrix", alpha_matrix)
+        alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=0)
+        assert alpha_matrix.requires_grad is False
+
+        neighbor_embeddings = torch.sparse.mm(alpha_matrix, output)
+
+        # for i in range(self.n_entities):
+        #     exp_inner_product = torch.exp(torch.matmul(output[i, :], output.t())).data
+        #     assert exp_inner_product.requires_grad is False
+        #     exp_inner_product = exp_inner_product
+        #     mask = torch.index_select(self.adj, dim=0, index=torch.tensor(data=[i])).to_dense().reshape(self.n_entities)
+        #     # print("mask.shape:", mask.shape)
+        #     assert mask.shape == exp_inner_product.shape == (self.n_entities,)
+        #     mask_row_sum = torch.sum(torch.multiply(mask, exp_inner_product))
+        #     # print("mask_row_sum:", mask_row_sum)
+        #     alpha = torch.multiply(mask, exp_inner_product) / mask_row_sum
+        #     assert alpha.requires_grad is False
+        #     # print("alpha:", alpha)
+        #     # print("alpha row sum:", torch.sum(alpha))
+        #     neighbor_embeddings[i, :] = torch.matmul(output.t(), alpha)
 
         # output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(neighbor_embeddings))
@@ -129,9 +142,9 @@ class HyperKA(nn.Module):
 
         # list(zip(*--))这种写法详见torch api: https://pytorch.org/docs/1.9.0/sparse.html#sparse-uncoalesced-coo-docs
         self.ins_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*ins_adj[0])), values=ins_adj[1],
-                                                   size=ins_adj[2])
+                                                   size=ins_adj[2]).coalesce()
         self.onto_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*onto_adj[0])), values=onto_adj[1],
-                                                    size=onto_adj[2])
+                                                    size=onto_adj[2]).coalesce()
 
         self._generate_base_parameters()
         self.all_named_train_parameters_list = []

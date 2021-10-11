@@ -5,10 +5,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    sp_tensor = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 3, 2, 3]], values=[1, 1, 1, 1],
+                                        size=(4, 4)).coalesce()
+    dense_tensor = torch.tensor(data=[[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]])
+    masked_tensor = dense_tensor.sparse_mask(sp_tensor)
+    print(masked_tensor)
+    os.system("pause")
+
     t1 = torch.tensor([1, -1])
     t2 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]])
     print(torch.matmul(t1, t2))
-    t2 = t2.reshape((8,1))
+    t2 = t2.reshape((8, 1))
     print(t2)
     s = {(1, 2), (3, 4), (5, 6)}
     c = [element[0] for element in s]

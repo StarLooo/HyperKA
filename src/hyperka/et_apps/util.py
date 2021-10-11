@@ -118,6 +118,13 @@ def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
     data_len = len(row)
     data = np.ones(data_len)
 
+    graph = torch.sparse_coo_tensor(indices=[row, col], values=data, size=(total_ent_num, total_ent_num))
+    # print("graph:", graph)
+    # print(graph.is_coalesced())
+    # graph = graph.coalesce()
+    # print("graph:", graph)
+    # os.system("pause")
+
     # 进行稀疏化表示
     adjacent_graph = sp.coo_matrix((data, (row, col)), shape=(total_ent_num, total_ent_num))
     # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
