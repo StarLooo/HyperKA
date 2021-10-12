@@ -79,6 +79,8 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
         triple_loss += triple_step_loss
         mapping_step_loss, mapping_step_time = train_mapping_1_step(model, link_batch_size, args.mapping_neg_nums)
         mapping_loss += mapping_step_loss
+        print("train triple 1 step time cost:", triple_step_time, "s")
+        print("train mapping 1 step time cost:", mapping_step_time, "s")
     triple_loss /= steps
     mapping_loss /= steps
     # 一个epoch跑完后对ins_triples_list和onto_triples_list重新排列，这样使下一个epoch时构造的batch与这个epoch的不同
@@ -102,6 +104,7 @@ def train_triple_1_step(model, ins_triples, onto_triples, step, args,
     triple_loss = model.optimize_triple_loss(triple_pos_neg_batch).data
 
     end = time.time()
+
     return triple_loss, round(end - start, 2)
 
 

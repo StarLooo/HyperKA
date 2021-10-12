@@ -1,16 +1,27 @@
 import os
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    E = torch.tensor([[1., 2., 3., 4.], [5., 6., 7., 8.], [9., 10., 11., 12.]], requires_grad=False)
+    w = torch.tensor([1., 2., 3., 4.], requires_grad=True)
+    A = torch.matmul(E, w).unsqueeze(1)
+    A = A.expand(3, 3)
+    print(A)
+    sp_tensor = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 0, 2, 1]], values=[1, 1, 1, 1],
+                                        size=(3, 3)).coalesce()
+    masked_tensor = A.sparse_mask(sp_tensor)
+    print(masked_tensor)
+    os.system("pause")
+
     sp_tensor = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 3, 2, 3]], values=[1, 1, 1, 1],
                                         size=(4, 4)).coalesce()
     dense_tensor = torch.tensor(data=[[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]])
     masked_tensor = dense_tensor.sparse_mask(sp_tensor)
     print(masked_tensor)
-    os.system("pause")
 
     t1 = torch.tensor([1, -1])
     t2 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]])

@@ -24,9 +24,10 @@ class GCNLayer(nn.Module):
         self.adj = adj
         self.n_entities = adj.shape[0]
         # TODO: 加入注意力机制后还需要这个线性变换吗？
-        self.weight_matrix = nn.Parameter(
+        self.W = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
+        # self.w = nn.Parameter(torch.rand(output_dim, 1, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         if has_bias:
             self.bias_vec = nn.Parameter(
                 torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
@@ -41,8 +42,8 @@ class GCNLayer(nn.Module):
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
             pre_sup_tangent = F.dropout(pre_sup_tangent, p=drop_rate, training=self.training) / (
                     1 - drop_rate)  # not scaled up
-        assert pre_sup_tangent.shape[1] == self.weight_matrix.shape[0]
-        output = torch.mm(pre_sup_tangent, self.weight_matrix)
+        assert pre_sup_tangent.shape[1] == self.W.shape[0]
+        output = torch.mm(pre_sup_tangent, self.W)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
         # print("adj.shape:", self.adj.shape)
         # print("adj:", self.adj)
@@ -51,35 +52,23 @@ class GCNLayer(nn.Module):
         # output = torch.sparse.mm(self.adj, output)
         # os.system("pause")
 
-        # 直接这么做会超内存
-        # exp_inner_product_matrix = torch.exp(torch.mm(output, output.t()))
+        # attention method 1
+        # alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
+        # alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=0)
+        # assert alpha_matrix.requires_grad is False
 
-        # indices = self.adj.indices()
-        # values = [torch.dot(output[indices[0][i], :], output[indices[1][i], :]) for i in range(indices.shape[1])]
-        # alpha_matrix = torch.sparse_coo_tensor(indices=indices, values=values,
-        #                                        size=(self.n_entities, self.n_entities),
-        #                                        requires_grad=False)
-        alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
-        # print("alpha_matrix", alpha_matrix)
+        # attention method 1
+        alpha_matrix = F.leaky_relu(torch.matmul(output.detach(), self.w)).t().expand(
+            (output.shape[0], output.shape[0])).sparse_mask(self.adj)
         alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=0)
-        assert alpha_matrix.requires_grad is False
+        assert alpha_matrix.requires_grad is True
+
+        # print("alpha_matrix", alpha_matrix)
+        # print("alpha_matrix row_sum", torch.sparse.sum(alpha_matrix, dim=0))
+        # assert alpha_matrix.requires_grad is True
+        # os.system("pause")
 
         neighbor_embeddings = torch.sparse.mm(alpha_matrix, output)
-
-        # for i in range(self.n_entities):
-        #     exp_inner_product = torch.exp(torch.matmul(output[i, :], output.t())).data
-        #     assert exp_inner_product.requires_grad is False
-        #     exp_inner_product = exp_inner_product
-        #     mask = torch.index_select(self.adj, dim=0, index=torch.tensor(data=[i])).to_dense().reshape(self.n_entities)
-        #     # print("mask.shape:", mask.shape)
-        #     assert mask.shape == exp_inner_product.shape == (self.n_entities,)
-        #     mask_row_sum = torch.sum(torch.multiply(mask, exp_inner_product))
-        #     # print("mask_row_sum:", mask_row_sum)
-        #     alpha = torch.multiply(mask, exp_inner_product) / mask_row_sum
-        #     assert alpha.requires_grad is False
-        #     # print("alpha:", alpha)
-        #     # print("alpha row sum:", torch.sum(alpha))
-        #     neighbor_embeddings[i, :] = torch.matmul(output.t(), alpha)
 
         # output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(neighbor_embeddings))
@@ -288,6 +277,7 @@ class HyperKA(nn.Module):
             if train_param.grad is None:
                 # print("skip")
                 continue
+            # print("name:", name, "shape:", train_param.shape)
             riemannian_grad = train_param.grad * (1. - torch.norm(train_param, dim=1).reshape((-1, 1)) ** 2) ** 2 / 4
             train_param.grad = riemannian_grad
         optimizer.step()
@@ -353,8 +343,12 @@ class HyperKA(nn.Module):
 
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
+        start = time.time()
         # 进行论文中所说的图卷积
         self._graph_convolution()
+        end = time.time()
+        print("graph attention time cost:", round(end - start, 2), "s")
+
         # ins_ent_embeddings和onto_ent_embeddings卷积后得到的嵌入向量
         ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]
         onto_ent_embeddings = self.onto_ent_embeddings_output_list[-1]
@@ -383,7 +377,10 @@ class HyperKA(nn.Module):
         mapping_loss = self._compute_mapping_loss(mapped_link_phs_embeds, mapped_link_nhs_embeds,
                                                   link_pts_embeds, link_nts_embeds)
 
+        start = time.time()
         self._adapt_riemannian_optimizer(self.mapping_optimizer, mapping_loss, self.all_named_train_parameters_list)
+        end = time.time()
+        print("backward time cost:", round(end - start, 2), "s")
 
         return mapping_loss
 
