@@ -6,6 +6,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    sparse_A = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 0, 2, 1]], values=[1, 1, 1, 1],
+                                       size=(3, 3)).coalesce()
+    sparse_B = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 0, 2, 1]], values=[0.25, 0.1, 1.5, 3.],
+                                       size=(3, 3)).coalesce()
+    row_sum_A = torch.sparse.sum(sparse_A, dim=1).to_dense()
+    print("row_sum_A:", row_sum_A)
+    row_sum_B = torch.sparse.sum(sparse_B, dim=1).to_dense()
+    print("row_sum_B:", row_sum_B)
+    print(row_sum_B / row_sum_A)
+
+    A = torch.tensor([[1, 1.5, 2., 2.5], [0.5, 0.7, 0.9, 1.0]])
+    print("exp A:", torch.exp(A))
+    softmax_A = torch.softmax(A, dim=1)
+    print("softmax_A:", softmax_A)
+    print("row sum:", softmax_A.sum(dim=1))
+
+    os.system("pause")
+
     E = torch.tensor([[1., 2., 3., 4.], [5., 6., 7., 8.], [9., 10., 11., 12.]], requires_grad=False)
     w = torch.tensor([1., 2., 3., 4.], requires_grad=True)
     A = torch.matmul(E, w).unsqueeze(1)

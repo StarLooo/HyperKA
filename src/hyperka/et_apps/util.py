@@ -141,31 +141,26 @@ def generate_graph(total_ent_num, triples, is_undirected=True, is_weighted=False
     start = time.time()
     edges = dict()
 
-    judge = dict()
-    for triple in triples:
-        h, r, t = triple
-        if (h, t) not in judge:
-            judge[(h, t)] = set()
-        judge[(h, t)].add(r)
-        if len(judge[(h, t)]) != 1:
-            print("h, t, rs:", h, t, judge[(h, t)])
-
-    os.system("pause")
-
     for tripe in triples:
         h, r, t = tripe
         if h not in edges.keys():
-            edges[h] = set()
-        edges[h].add((t, r))
+            edges[h] = dict()
+        if t not in edges[h].keys():
+            edges[h][t] = set()
+        edges[h][t].add(r)
         if is_undirected:
             if t not in edges.keys():
-                edges[t] = set()
-            edges[t].add((h, r))
+                edges[t] = dict()
+            if h not in edges[t].keys():
+                edges[t][h] = set()
+            edges[t][h].add(r)
     print("edges keys len:", len(edges))
     cnt = 0
     for key in edges.keys():
         cnt += len(edges[key])
     print(cnt)
+
+    os.system("pause")
 
     # 用sp.coo_matrix()函数稀疏化表示
     rows = list()

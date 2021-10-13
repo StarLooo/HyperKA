@@ -16,7 +16,7 @@ from hyperka.hyperbolic.poincare import PoincareManifold
 # TODO:开始添加注意力机制
 class GCNLayer(nn.Module):
     def __init__(self, adj: torch.Tensor, input_dim: int, output_dim: int, layer_id: int, poincare: PoincareManifold,
-                 has_bias: bool = True, activation: nn.Module = None):
+                 has_bias: bool = True, activation: nn.Module = None, another_attention_mode: bool = False):
         super().__init__()
         self.poincare = poincare
         self.has_bias = has_bias
@@ -27,13 +27,17 @@ class GCNLayer(nn.Module):
         self.W = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
-        # self.w = nn.Parameter(torch.rand(output_dim, 1, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
+        # attention method 2
+        if another_attention_mode:
+            self.w = nn.Parameter(
+                torch.rand(output_dim, 1, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         if has_bias:
             self.bias_vec = nn.Parameter(
                 torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         else:
             # TODO: 不知道这里register_parameter是否是多余的
             self.register_parameter("bias_vec", None)
+        self.another_attention_mode = another_attention_mode
 
     def forward(self, inputs: torch.Tensor, drop_rate: float = 0.0):
         assert 0.0 <= drop_rate < 1.0
@@ -52,20 +56,20 @@ class GCNLayer(nn.Module):
         # output = torch.sparse.mm(self.adj, output)
         # os.system("pause")
 
+        # attention method 2
+        if self.another_attention_mode:
+            alpha_matrix = F.leaky_relu(torch.matmul(output.detach(), self.w)).t().expand(
+                (output.shape[0], output.shape[0])).sparse_mask(self.adj)
+            alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
+            assert alpha_matrix.requires_grad is True
         # attention method 1
-        # alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
-        # alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=0)
-        # assert alpha_matrix.requires_grad is False
-
-        # attention method 1
-        alpha_matrix = F.leaky_relu(torch.matmul(output.detach(), self.w)).t().expand(
-            (output.shape[0], output.shape[0])).sparse_mask(self.adj)
-        alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=0)
-        assert alpha_matrix.requires_grad is True
+        else:
+            alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
+            alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
+            assert alpha_matrix.requires_grad is False
 
         # print("alpha_matrix", alpha_matrix)
-        # print("alpha_matrix row_sum", torch.sparse.sum(alpha_matrix, dim=0))
-        # assert alpha_matrix.requires_grad is True
+        # print("alpha_matrix row_sum", torch.sparse.sum(alpha_matrix, dim=1))
         # os.system("pause")
 
         neighbor_embeddings = torch.sparse.mm(alpha_matrix, output)
