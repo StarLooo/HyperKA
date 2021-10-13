@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
 import time
 
 import torch
@@ -26,9 +25,14 @@ class GCNLayer(nn.Module):
         self.near_ents_num = near_ents_num
         self.near_rels_adj = near_rels_adj
         self.near_rels_num = near_rels_num
-        self.n_entities = near_ents_adj.shape[0]
+        self.n_entities, self.n_rels = near_rels_adj.shape
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         # TODO: 加入注意力机制后还需要这个线性变换吗？
-        self.W = nn.Parameter(
+        self.W_ent = nn.Parameter(
+            nn.init.xavier_uniform_(
+                torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
+        self.W_rel = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
         # attention method 2
@@ -43,16 +47,22 @@ class GCNLayer(nn.Module):
             self.register_parameter("bias_vec", None)
         self.another_attention_mode = another_attention_mode
 
-    def forward(self, ents_embed_inputs: torch.Tensor, rels_embed_inputs: torch.Tensor, drop_rate: float = 0.0):
+    def forward(self, ents_embed_input: torch.Tensor, rels_embed_input: torch.Tensor, drop_rate: float = 0.0,
+                combine_rels_weight: float = 0.1):
         assert 0.0 <= drop_rate < 1.0
-        ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_inputs)
-        rels_pre_sup_tangent = self.poincare.log_map_zero(rels_embed_inputs)
+        ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_input)
+        rels_pre_sup_tangent = self.poincare.log_map_zero(rels_embed_input)
         if drop_rate > 0.0:
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
+            # TODO: 不过貌似实际上并没有drop_out
             pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) / (
                     1 - drop_rate)  # not scaled up
-        assert ents_pre_sup_tangent.shape[1] == self.W.shape[0]
-        output = torch.mm(ents_pre_sup_tangent, self.W)
+            rels_pre_sup_tangent = F.dropout(rels_pre_sup_tangent, p=drop_rate, training=self.training) / (
+                    1 - drop_rate)
+        assert ents_pre_sup_tangent.shape[1] == self.W_ent.shape[0]
+        assert rels_pre_sup_tangent.shape[1] == self.W_rel.shape[0]
+        ents_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
+        rels_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
         # print("adj.shape:", self.adj.shape)
         # print("adj:", self.adj)
@@ -64,13 +74,14 @@ class GCNLayer(nn.Module):
 
         # attention method 2
         if self.another_attention_mode:
-            alpha_matrix = F.leaky_relu(torch.matmul(output.detach(), self.w)).t().expand(
-                (output.shape[0], output.shape[0])).sparse_mask(self.near_ents_adj)
+            alpha_matrix = F.leaky_relu(torch.matmul(ents_embed_mapped.detach(), self.w)).t().expand(
+                (self.n_entities, self.n_entities)).sparse_mask(self.near_ents_adj)
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is True
         # attention method 1
         else:
-            alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.near_ents_adj)
+            alpha_matrix = torch.matmul(ents_embed_mapped.detach(), ents_embed_mapped.detach().t()).sparse_mask(
+                self.near_ents_adj)
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is False
 
@@ -78,19 +89,39 @@ class GCNLayer(nn.Module):
         # print("alpha_matrix row_sum", torch.sparse.sum(alpha_matrix, dim=1))
         # os.system("pause")
 
-        neighbor_embeddings = torch.sparse.mm(alpha_matrix, output)
+        near_ents_embeddings = torch.sparse.mm(alpha_matrix, ents_embed_mapped)
 
-        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
-        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(neighbor_embeddings))
+        # TODO: 关系消息传递的时候是否需要detach()
+        edge_embeddings = rels_embed_input[self.near_rels_adj.values()]
+        # print("edge_embeddings.shape:", edge_embeddings.shape)
+        near_rels_embed_adj = torch.sparse_coo_tensor(indices=self.near_rels_adj.indices(), values=edge_embeddings,
+                                                      size=(self.n_entities, self.n_rels, self.output_dim),
+                                                      device=ut.try_gpu())
+        near_rels_embeddings = torch.sparse.sum(near_rels_embed_adj, dim=1).to_dense()
+        # print("near_rels_embeddings.shape:", near_rels_embeddings.shape)
+        # print("near_rels_embeddings:", near_rels_embeddings)
+        # print("near_rels_num.shape:", self.near_rels_num.shape)
+        near_rels_embeddings = near_rels_embeddings / self.near_rels_num.unsqueeze(1)
+        assert near_rels_embeddings.shape == near_ents_embeddings.shape == ents_embed_input.shape
+
+        # print("near_ents_embeddings:", near_ents_embeddings)
+        # print("ents_embed_input:", ents_embed_input)
+        # print("near_rels_embeddings:", near_rels_embeddings)
+        # print("rels_embed_input:", rels_embed_input)
+        # os.system("pause")
+
+        near_embeddings_output = self.poincare.hyperbolic_projection(
+            self.poincare.exp_map_zero(near_ents_embeddings + combine_rels_weight * near_rels_embeddings))
+        # TODO: 是否还需要bias
         if self.has_bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
-            output = self.poincare.mobius_addition(output, bias_vec)
-            output = self.poincare.hyperbolic_projection(output)
+            near_embeddings_output = self.poincare.mobius_addition(near_embeddings_output, bias_vec)
+            near_embeddings_output = self.poincare.hyperbolic_projection(near_embeddings_output)
         if self.activation is not None:
-            output = self.activation(self.poincare.log_map_zero(output))
-            output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
-        assert output.requires_grad is True
-        return output
+            near_embeddings_output = self.activation(self.poincare.log_map_zero(near_embeddings_output))
+            near_embeddings_output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(near_embeddings_output))
+        assert near_embeddings_output.requires_grad is True
+        return near_embeddings_output
 
 
 class HyperKA(nn.Module):
@@ -147,10 +178,9 @@ class HyperKA(nn.Module):
         #                                             size=onto_adj[2]).coalesce()
         self.ins_near_ents_adj, self.ins_near_ents_num = ins_near_ents_graph
         self.ins_near_rels_adj, self.ins_near_rels_num = ins_near_rels_graph
+
         self.onto_near_ents_adj, self.onto_near_ents_num = onto_near_ents_graph
         self.onto_near_rels_adj, self.onto_near_rels_num = onto_near_rels_graph
-
-        os.system("pause")
 
         self._generate_base_parameters()
         self.all_named_train_parameters_list = []
@@ -168,7 +198,7 @@ class HyperKA(nn.Module):
             if ins_layer_id == self.ins_layer_num - 1:
                 activation = None
             gcn_layer = GCNLayer(near_ents_adj=self.ins_near_ents_adj, near_rels_adj=self.ins_near_rels_adj,
-                                 near_ents_num=self.ins_near_ents_num, near_rels_num=self.ins_near_rels_adj,
+                                 near_ents_num=self.ins_near_ents_num, near_rels_num=self.ins_near_rels_num,
                                  input_dim=self.args.ins_dim, output_dim=self.args.ins_dim, layer_id=ins_layer_id,
                                  poincare=self.poincare, activation=activation)
             self.ins_gcn_layers_list.append(gcn_layer)
@@ -183,7 +213,7 @@ class HyperKA(nn.Module):
             if onto_layer_id == self.onto_layer_num - 1:
                 activation = None
             gcn_layer = GCNLayer(near_ents_adj=self.onto_near_ents_adj, near_rels_adj=self.onto_near_rels_adj,
-                                 near_ents_num=self.onto_near_ents_num, near_rels_num=self.onto_near_rels_adj,
+                                 near_ents_num=self.onto_near_ents_num, near_rels_num=self.onto_near_rels_num,
                                  input_dim=self.args.onto_dim, output_dim=self.args.onto_dim, layer_id=onto_layer_id,
                                  poincare=self.poincare, activation=activation)
             self.onto_gcn_layers_list.append(gcn_layer)
@@ -362,11 +392,11 @@ class HyperKA(nn.Module):
 
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
-        start = time.time()
+        # start = time.time()
         # 进行论文中所说的图卷积
         self._graph_convolution()
-        end = time.time()
-        print("graph attention time cost:", round(end - start, 2), "s")
+        # end = time.time()
+        # print("graph attention time cost:", round(end - start, 2), "s")
 
         # ins_ent_embeddings和onto_ent_embeddings卷积后得到的嵌入向量
         ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]
@@ -396,10 +426,10 @@ class HyperKA(nn.Module):
         mapping_loss = self._compute_mapping_loss(mapped_link_phs_embeds, mapped_link_nhs_embeds,
                                                   link_pts_embeds, link_nts_embeds)
 
-        start = time.time()
+        # start = time.time()
         self._adapt_riemannian_optimizer(self.mapping_optimizer, mapping_loss, self.all_named_train_parameters_list)
-        end = time.time()
-        print("backward time cost:", round(end - start, 2), "s")
+        # end = time.time()
+        # print("backward time cost:", round(end - start, 2), "s")
 
         return mapping_loss
 

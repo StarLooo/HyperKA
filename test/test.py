@@ -1,11 +1,18 @@
-import os
+# -*- coding: utf-8 -*-
 
+import os
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    uncoalesced_A = torch.sparse_coo_tensor(indices=[[0, 0, 0, 0, 1, 1, 2, 2], [1, 1, 2, 2, 2, 2, 0, 1]],
+                                            values=[[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]],
+                                            size=(3, 3, 2))
+    print(uncoalesced_A._values())
+    os.system("pause")
+
     uncoalesced_A = torch.sparse_coo_tensor(indices=[[0, 0, 0, 0, 1, 1, 2, 2], [1, 1, 2, 2, 2, 2, 0, 1]],
                                             values=[[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]],
                                             size=(3, 3, 2))
@@ -87,8 +94,8 @@ if __name__ == '__main__':
     print(torch.mv(A, x))
 
 
-# ֮ǰGCN��forward
-# H: ˫���ռ�, E: ŷ�Ͽռ�
+# 之前GCN的forward
+# H: 双曲空间, E: 欧氏空间
 def forward(self, inputs: torch.Tensor, drop_rate: float = 0.0):
     pre_sup_tangent = self.poincare.log_map_zero(inputs)  # log_map, H2E, pre_sup_tangent: H
     output = torch.mm(pre_sup_tangent, self.W)  # output: E
