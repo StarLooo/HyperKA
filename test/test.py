@@ -6,6 +6,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    uncoalesced_A = torch.sparse_coo_tensor(indices=[[0, 0, 0, 0, 1, 1, 2, 2], [1, 1, 2, 2, 2, 2, 0, 1]],
+                                            values=[[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]],
+                                            size=(3, 3, 2))
+    print(uncoalesced_A)
+    coalesced_A = uncoalesced_A.coalesce()
+    print(coalesced_A)
+
+    os.system("pause")
+
     sparse_A = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 0, 2, 1]], values=[1, 1, 1, 1],
                                        size=(3, 3)).coalesce()
     sparse_B = torch.sparse_coo_tensor(indices=[[0, 0, 1, 2], [2, 0, 2, 1]], values=[0.25, 0.1, 1.5, 3.],
@@ -76,3 +85,21 @@ if __name__ == '__main__':
     A = torch.tensor([[1, 2, 3], [3, 4, 5]])
     print(x.shape, A.shape)
     print(torch.mv(A, x))
+
+
+# 之前GCN的forward
+# H: 双曲空间, E: 欧氏空间
+def forward(self, inputs: torch.Tensor, drop_rate: float = 0.0):
+    pre_sup_tangent = self.poincare.log_map_zero(inputs)  # log_map, H2E, pre_sup_tangent: H
+    output = torch.mm(pre_sup_tangent, self.W)  # output: E
+    output = torch.sparse.mm(self.adj, output)  # output: E
+    output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))  # exp_map, E2H, output: H
+    if self.has_bias:
+        # exp_map, E2H, bias_vec: H
+        bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
+        output = self.poincare.mobius_addition(output, bias_vec)  # output: H
+        output = self.poincare.hyperbolic_projection(output)
+    if self.activation is not None:
+        output = self.activation(self.poincare.log_map_zero(output))
+        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+    return output

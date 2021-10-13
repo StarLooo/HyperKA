@@ -24,13 +24,20 @@ def get_model(folder, kge_model, args):
     print("read_input finished\n")
 
     print("generate_adjacent_graph begin...")
-    ins_adj = generate_adjacent_graph(total_ents_num=insnet[3], triples=insnet[0].triples)
-    onto_adj = generate_adjacent_graph(total_ents_num=onto[3], triples=onto[0].triples)
-    print("ins_adj shape:", ins_adj[2])
-    print("onto_adj shape:", onto_adj[2])
+    ins_near_ents_graph, ins_near_rels_graph = generate_adjacent_graph(total_ents_num=insnet[3],
+                                                                       total_rels_num=insnet[4],
+                                                                       triples=insnet[0].triples)
+    onto_near_ents_graph, onto_near_rels_graph = generate_adjacent_graph(total_ents_num=onto[3],
+                                                                         total_rels_num=onto[4],
+                                                                         triples=onto[0].triples)
+    print("ins_near_ents_adj shape:", ins_near_ents_graph[0].shape)
+    print("ins_near_rels_adj shape:", ins_near_rels_graph[0].shape)
+    print("onto_near_ents_adj shape:", onto_near_ents_graph[0].shape)
+    print("onto_near_rels_adj shape:", onto_near_rels_graph[0].shape)
     print("generate_adjacent_graph finished\n")
 
-    model = kge_model(insnet, onto, instype, ins_adj, onto_adj, args)
+    model = kge_model(insnet, onto, instype, ins_near_ents_graph, ins_near_rels_graph, onto_near_ents_graph,
+                      onto_near_rels_graph, args)
 
     return insnet[0], onto[0], model
 

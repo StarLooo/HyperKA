@@ -15,14 +15,18 @@ from hyperka.hyperbolic.poincare import PoincareManifold
 # TODO:因为没有理解adj所以对卷图积层的作用不是很明白
 # TODO:开始添加注意力机制
 class GCNLayer(nn.Module):
-    def __init__(self, adj: torch.Tensor, input_dim: int, output_dim: int, layer_id: int, poincare: PoincareManifold,
-                 has_bias: bool = True, activation: nn.Module = None, another_attention_mode: bool = False):
+    def __init__(self, near_ents_adj, near_rels_adj, near_ents_num, near_rels_num, input_dim, output_dim, layer_id,
+                 poincare: PoincareManifold, has_bias: bool = True, activation: nn.Module = None,
+                 another_attention_mode: bool = False):
         super().__init__()
         self.poincare = poincare
         self.has_bias = has_bias
         self.activation = activation
-        self.adj = adj
-        self.n_entities = adj.shape[0]
+        self.near_ents_adj = near_ents_adj
+        self.near_ents_num = near_ents_num
+        self.near_rels_adj = near_rels_adj
+        self.near_rels_num = near_rels_num
+        self.n_entities = near_ents_adj.shape[0]
         # TODO: 加入注意力机制后还需要这个线性变换吗？
         self.W = nn.Parameter(
             nn.init.xavier_uniform_(
@@ -39,32 +43,34 @@ class GCNLayer(nn.Module):
             self.register_parameter("bias_vec", None)
         self.another_attention_mode = another_attention_mode
 
-    def forward(self, inputs: torch.Tensor, drop_rate: float = 0.0):
+    def forward(self, ents_embed_inputs: torch.Tensor, rels_embed_inputs: torch.Tensor, drop_rate: float = 0.0):
         assert 0.0 <= drop_rate < 1.0
-        pre_sup_tangent = self.poincare.log_map_zero(inputs)
+        ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_inputs)
+        rels_pre_sup_tangent = self.poincare.log_map_zero(rels_embed_inputs)
         if drop_rate > 0.0:
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
-            pre_sup_tangent = F.dropout(pre_sup_tangent, p=drop_rate, training=self.training) / (
+            pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) / (
                     1 - drop_rate)  # not scaled up
-        assert pre_sup_tangent.shape[1] == self.W.shape[0]
-        output = torch.mm(pre_sup_tangent, self.W)
+        assert ents_pre_sup_tangent.shape[1] == self.W.shape[0]
+        output = torch.mm(ents_pre_sup_tangent, self.W)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
         # print("adj.shape:", self.adj.shape)
         # print("adj:", self.adj)
         # print("adj.requires_grad:", self.adj.requires_grad)
         # print("output.shape:", output.shape)
+        # print(self.adj.dtype)
         # output = torch.sparse.mm(self.adj, output)
         # os.system("pause")
 
         # attention method 2
         if self.another_attention_mode:
             alpha_matrix = F.leaky_relu(torch.matmul(output.detach(), self.w)).t().expand(
-                (output.shape[0], output.shape[0])).sparse_mask(self.adj)
+                (output.shape[0], output.shape[0])).sparse_mask(self.near_ents_adj)
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is True
         # attention method 1
         else:
-            alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.adj)
+            alpha_matrix = torch.matmul(output.detach(), output.detach().t()).sparse_mask(self.near_ents_adj)
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is False
 
@@ -74,7 +80,7 @@ class GCNLayer(nn.Module):
 
         neighbor_embeddings = torch.sparse.mm(alpha_matrix, output)
 
-        # output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
+        output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(output))
         output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(neighbor_embeddings))
         if self.has_bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
@@ -88,7 +94,8 @@ class GCNLayer(nn.Module):
 
 
 class HyperKA(nn.Module):
-    def __init__(self, insnet, onto, instype, ins_adj, onto_adj, args):
+    def __init__(self, insnet, onto, instype, ins_near_ents_graph, ins_near_rels_graph, onto_near_ents_graph,
+                 onto_near_rels_graph, args):
         super().__init__()
         self.args = args
         self.poincare = PoincareManifold()
@@ -133,11 +140,17 @@ class HyperKA(nn.Module):
 
         self.test_all_ins_types = instype[1][2]
 
-        # list(zip(*--))这种写法详见torch api: https://pytorch.org/docs/1.9.0/sparse.html#sparse-uncoalesced-coo-docs
-        self.ins_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*ins_adj[0])), values=ins_adj[1],
-                                                   size=ins_adj[2]).coalesce()
-        self.onto_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*onto_adj[0])), values=onto_adj[1],
-                                                    size=onto_adj[2]).coalesce()
+        # # list(zip(*--))这种写法详见torch api: https://pytorch.org/docs/1.9.0/sparse.html#sparse-uncoalesced-coo-docs
+        # self.ins_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*ins_adj[0])), values=ins_adj[1],
+        #                                            size=ins_adj[2]).coalesce()
+        # self.onto_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*onto_adj[0])), values=onto_adj[1],
+        #                                             size=onto_adj[2]).coalesce()
+        self.ins_near_ents_adj, self.ins_near_ents_num = ins_near_ents_graph
+        self.ins_near_rels_adj, self.ins_near_rels_num = ins_near_rels_graph
+        self.onto_near_ents_adj, self.onto_near_ents_num = onto_near_ents_graph
+        self.onto_near_rels_adj, self.onto_near_rels_num = onto_near_rels_graph
+
+        os.system("pause")
 
         self._generate_base_parameters()
         self.all_named_train_parameters_list = []
@@ -154,9 +167,10 @@ class HyperKA(nn.Module):
             activation = self.activation
             if ins_layer_id == self.ins_layer_num - 1:
                 activation = None
-            gcn_layer = GCNLayer(adj=self.ins_adj_mat, input_dim=self.args.ins_dim,
-                                 output_dim=self.args.ins_dim, layer_id=ins_layer_id, poincare=self.poincare,
-                                 activation=activation)
+            gcn_layer = GCNLayer(near_ents_adj=self.ins_near_ents_adj, near_rels_adj=self.ins_near_rels_adj,
+                                 near_ents_num=self.ins_near_ents_num, near_rels_num=self.ins_near_rels_adj,
+                                 input_dim=self.args.ins_dim, output_dim=self.args.ins_dim, layer_id=ins_layer_id,
+                                 poincare=self.poincare, activation=activation)
             self.ins_gcn_layers_list.append(gcn_layer)
             for name, param in gcn_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
@@ -168,9 +182,10 @@ class HyperKA(nn.Module):
             activation = self.activation
             if onto_layer_id == self.onto_layer_num - 1:
                 activation = None
-            gcn_layer = GCNLayer(adj=self.onto_adj_mat, input_dim=self.args.onto_dim,
-                                 output_dim=self.args.onto_dim, layer_id=onto_layer_id, poincare=self.poincare,
-                                 activation=activation)
+            gcn_layer = GCNLayer(near_ents_adj=self.onto_near_ents_adj, near_rels_adj=self.onto_near_rels_adj,
+                                 near_ents_num=self.onto_near_ents_num, near_rels_num=self.onto_near_rels_adj,
+                                 input_dim=self.args.onto_dim, output_dim=self.args.onto_dim, layer_id=onto_layer_id,
+                                 poincare=self.poincare, activation=activation)
             self.onto_gcn_layers_list.append(gcn_layer)
             for name, param in gcn_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
@@ -253,7 +268,7 @@ class HyperKA(nn.Module):
         self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
         for ins_layer_id in range(self.ins_layer_num):
             gcn_layer = self.ins_gcn_layers_list[ins_layer_id]
-            ins_ent_embeddings_output = gcn_layer.forward(ins_ent_embeddings_output)
+            ins_ent_embeddings_output = gcn_layer.forward(ins_ent_embeddings_output, self.ins_rel_embeddings)
             ins_ent_embeddings_output = self.poincare.mobius_addition(ins_ent_embeddings_output,
                                                                       self.ins_ent_embeddings_output_list[-1])
             ins_ent_embeddings_output = self.poincare.hyperbolic_projection(ins_ent_embeddings_output)
@@ -265,7 +280,7 @@ class HyperKA(nn.Module):
         self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
         for onto_layer_id in range(self.onto_layer_num):
             gcn_layer = self.onto_gcn_layers_list[onto_layer_id]
-            onto_ent_embeddings_output = gcn_layer.forward(onto_ent_embeddings_output)
+            onto_ent_embeddings_output = gcn_layer.forward(onto_ent_embeddings_output, self.onto_rel_embeddings)
             onto_ent_embeddings_output = self.poincare.mobius_addition(onto_ent_embeddings_output,
                                                                        self.onto_ent_embeddings_output_list[-1])
             onto_ent_embeddings_output = self.poincare.hyperbolic_projection(onto_ent_embeddings_output)

@@ -85,8 +85,8 @@ def normalize_adj(adjacent_graph):
 def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     # TODO: 为什么这里要加上一个单位阵
-    # processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
-    processed_adjacent_graph = adjacent_graph  # GAT暂时先不做处理
+    processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
+    # processed_adjacent_graph = adjacent_graph  # GAT暂时先不做处理
     return sparse_to_tuple(processed_adjacent_graph)
 
 
@@ -118,7 +118,7 @@ def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
     data_len = len(row)
     data = np.ones(data_len)
 
-    graph = torch.sparse_coo_tensor(indices=[row, col], values=data, size=(total_ent_num, total_ent_num))
+    # graph = torch.sparse_coo_tensor(indices=[row, col], values=data, size=(total_ent_num, total_ent_num))
     # print("graph:", graph)
     # print(graph.is_coalesced())
     # graph = graph.coalesce()
@@ -137,69 +137,81 @@ def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
 
 # 根据triples生成对应的图(默认为无向无权图)
 # TODO:还有遗留的问题没解决，先用generate_no_weighted_undirected_adjacent_graph
-def generate_graph(total_ent_num, triples, is_undirected=True, is_weighted=False):
+def generate_graph(total_ents_num, total_rels_num, triples):
     start = time.time()
-    edges = dict()
-
+    near_ents = dict()  # 各实体的邻居实体
+    near_rels = dict()  # 各实体的邻居关系
+    near_ents_num = torch.empty(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
+                                requires_grad=False)  # 各实体的邻居实体数
+    near_rels_num = torch.empty(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
+                                requires_grad=False)  # 各实体的邻居关系数
     for tripe in triples:
         h, r, t = tripe
-        if h not in edges.keys():
-            edges[h] = dict()
-        if t not in edges[h].keys():
-            edges[h][t] = set()
-        edges[h][t].add(r)
-        if is_undirected:
-            if t not in edges.keys():
-                edges[t] = dict()
-            if h not in edges[t].keys():
-                edges[t][h] = set()
-            edges[t][h].add(r)
-    print("edges keys len:", len(edges))
-    cnt = 0
-    for key in edges.keys():
-        cnt += len(edges[key])
-    print(cnt)
+        # near_ents:
+        if h not in near_ents.keys():
+            near_ents[h] = set()
+        if t not in near_ents.keys():
+            near_ents[t] = set()
+        near_ents[h].add(t)
+        near_ents[t].add(h)
 
-    os.system("pause")
+        # near_rels:
+        if h not in near_rels.keys():
+            near_rels[h] = set()
+        if t not in near_rels.keys():
+            near_rels[t] = set()
+        near_rels[h].add(r)
+        near_rels[t].add(r)
+    assert len(near_ents.keys()) == len(near_ents.keys()) == total_ents_num
 
-    # 用sp.coo_matrix()函数稀疏化表示
-    rows = list()
-    cols = list()
-    values = list()
-    for ent_id in range(total_ent_num):
-        # 表示id为i的实体并不在该KG对应的无向图中
-        if ent_id not in edges.keys():
+    near_ents_rows_list, near_ents_cols_list, near_ents_values_list = list(), list(), list()
+    near_rels_rows_list, near_rels_cols_list, near_rels_values_list = list(), list(), list()
+
+    for ent_id in range(total_ents_num):
+        if ent_id not in near_ents.keys():
             continue
         source = ent_id
-        targets_list = [element[0] for element in edges[source]]
-        if is_weighted:
-            values_list = [element[1] for element in edges[source]]
-        else:
-            values_list = np.ones(len(targets_list), dtype=int).tolist()
-        rows.extend((source * np.ones(len(targets_list), dtype=int)).tolist())
-        cols.extend(targets_list)
-        values.extend(values_list)
+        near_ents_of_source = list(near_ents[source])
+        near_ents_num[ent_id] = len(near_ents_of_source)
+        near_ents_values = np.ones(len(near_ents_of_source), dtype=int).tolist()
+        near_ents_rows_list.extend((source * np.ones(len(near_ents_of_source), dtype=int)).tolist())
+        near_ents_cols_list.extend(near_ents_of_source)
+        near_ents_values_list.extend(near_ents_values)
 
-    print("rows.len:", len(rows))
-    print("rows[:10]", rows[:10])
-    print("cols.len:", len(cols))
-    print("cols[:10]", cols[:10])
-    print("values.len:", len(values))
-    print("values[:10]", values[:10])
-    os.system("pause")
+        near_rels_of_source = list(near_rels[source])
+        near_rels_num[ent_id] = len(near_rels_of_source)
+        near_rels_values = near_rels_of_source
+        near_rels_rows_list.extend((source * np.ones(len(near_rels_of_source), dtype=int)).tolist())
+        near_rels_cols_list.extend(near_rels_of_source)
+        near_rels_values_list.extend(near_rels_values)
+
     # 进行稀疏化表示
-    adjacent_graph = sp.coo_matrix((values, (rows, cols)), shape=(total_ent_num, total_ent_num))
-    # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
-    adjacent_graph = preprocess_adjacent_graph(adjacent_graph)
+    near_ents_adj = torch.sparse_coo_tensor(indices=[near_ents_rows_list, near_ents_cols_list],
+                                            values=near_ents_values_list, size=(total_ents_num, total_ents_num),
+                                            device=try_gpu(), requires_grad=False).coalesce()
+    near_rels_adj = torch.sparse_coo_tensor(indices=[near_rels_rows_list, near_rels_cols_list],
+                                            values=near_rels_values_list, size=(total_ents_num, total_rels_num),
+                                            device=try_gpu(), requires_grad=False).coalesce()
+
+    near_ents_graph = (near_ents_adj, near_ents_num)
+    near_rels_graph = (near_rels_adj, near_rels_num)
+
+    # print("near_ents_adj:", near_ents_adj)
+    # print("near_ents_num:", near_ents_num, near_ents_num.shape)
+    # print("near_rels_adj:", near_rels_adj)
+    # print("near_rels_num:", near_rels_num, near_rels_num.shape)
+    # os.system("pause")
 
     end = time.time()
     print('generating KG costs time: {:.4f}s'.format(end - start))
-    return adjacent_graph
+
+    return near_ents_graph, near_rels_graph
 
 
 # 根据triples生成对应的邻接图
-def generate_adjacent_graph(total_ents_num, triples):
-    return generate_no_weighted_undirected_adjacent_graph(total_ents_num, triples)
+def generate_adjacent_graph(total_ents_num, total_rels_num, triples):
+    # return generate_no_weighted_undirected_adjacent_graph(total_ents_num, triples)
+    return generate_graph(total_ents_num, total_rels_num, triples)
 
 
 if __name__ == '__main__':
