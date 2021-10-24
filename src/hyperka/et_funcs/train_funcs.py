@@ -77,6 +77,7 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
     # 一个epoch需要跑steps步，每一步跑batch_size大小的数据
     steps = math.ceil(ins_triples.triples_num / args.batch_size)
     # print("steps per epoch:", steps)
+    steps = 1
     link_batch_size = math.ceil(len(model.train_instype_head) / steps)
     for step in range(1, steps + 1):
         # if step % 5 == 1:

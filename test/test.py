@@ -9,8 +9,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    uncoalesced_A = torch.sparse_coo_tensor(indices=[[0, 0, 0, 0, 1, 1, 2, 2], [1, 1, 2, 2, 2, 2, 0, 1]],
+                                            values=[[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]],
+                                            size=(3, 3, 2))
+    coalesced_A = uncoalesced_A.coalesce()
+    print(coalesced_A)
+    print(coalesced_A.transpose(0,1))
+    os.system("pause")
+
     A = torch.tensor([[1, 2, 3.], [1, 2, 3], [1, 2, 3], [1, 2, 3]])
     print(torch.softmax(A, dim=1))
+    A = torch.tensor([[1, 1, 1.], [2, 2, 2], [3, 3, 3], [4, 4, 4]])
+    print(torch.softmax(A, dim=0))
     os.system("pause")
 
     print(igraph.__version__)

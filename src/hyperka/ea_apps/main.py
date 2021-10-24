@@ -46,8 +46,8 @@ parser.add_argument('--sim_th', type=float, default=0.75)
 parser.add_argument('--nearest_k', type=int, default=200)
 parser.add_argument('--start_bp', type=int, default=1)
 parser.add_argument('--bp_param', type=float, default=0.05)
-# parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # TODO:是否采用bootstrapping?
-parser.add_argument('--is_bp', type=ast.literal_eval, default=True)
+parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # 是否采用bootstrapping?
+# parser.add_argument('--is_bp', type=ast.literal_eval, default=True)
 # parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
 parser.add_argument('--heuristic', type=ast.literal_eval, default=False)
 parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否结合第0层和最后一层的嵌入

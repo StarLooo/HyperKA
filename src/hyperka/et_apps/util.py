@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import math
+import os
 import time
 import numpy as np
 import scipy.sparse as sp
@@ -134,15 +135,17 @@ def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
 
 
 # 根据triples生成对应的图(默认为无向无权图)
-# TODO:还有遗留的问题没解决，先用generate_no_weighted_undirected_adjacent_graph
 def generate_graph(total_ents_num, total_rels_num, triples):
     start = time.time()
     near_ents = dict()  # 各实体的邻居实体
     near_rels = dict()  # 各实体的邻居关系
-    near_ents_num = torch.empty(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
-                                requires_grad=False)  # 各实体的邻居实体数
-    near_rels_num = torch.empty(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
-                                requires_grad=False)  # 各实体的邻居关系数
+    ents_near_ents_num = torch.zeros(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
+                                     requires_grad=False)  # 各实体的邻居实体数
+    ents_near_rels_num = torch.zeros(size=(total_ents_num,), dtype=torch.int, device=try_gpu(),
+                                     requires_grad=False)  # 各实体的邻居关系数
+    rels_near_ents_num = torch.zeros(size=(total_rels_num,), dtype=torch.int, device=try_gpu(),
+                                     requires_grad=False)  # 各关系的邻居实体数
+
     for tripe in triples:
         h, r, t = tripe
         # near_ents:
@@ -170,14 +173,15 @@ def generate_graph(total_ents_num, total_rels_num, triples):
             continue
         source = ent_id
         near_ents_of_source = list(near_ents[source])
-        near_ents_num[ent_id] = len(near_ents_of_source)
+        ents_near_ents_num[ent_id] = len(near_ents_of_source)
         near_ents_values = np.ones(len(near_ents_of_source), dtype=int).tolist()
         near_ents_rows_list.extend((source * np.ones(len(near_ents_of_source), dtype=int)).tolist())
         near_ents_cols_list.extend(near_ents_of_source)
         near_ents_values_list.extend(near_ents_values)
 
         near_rels_of_source = list(near_rels[source])
-        near_rels_num[ent_id] = len(near_rels_of_source)
+        ents_near_rels_num[ent_id] = len(near_rels_of_source)
+        rels_near_ents_num[near_rels_of_source] += 1
         near_rels_values = near_rels_of_source
         near_rels_rows_list.extend((source * np.ones(len(near_rels_of_source), dtype=int)).tolist())
         near_rels_cols_list.extend(near_rels_of_source)
@@ -191,13 +195,14 @@ def generate_graph(total_ents_num, total_rels_num, triples):
                                             values=near_rels_values_list, size=(total_ents_num, total_rels_num),
                                             device=try_gpu(), requires_grad=False).coalesce()
 
-    near_ents_graph = (near_ents_adj, near_ents_num)
-    near_rels_graph = (near_rels_adj, near_rels_num)
+    near_ents_graph = (near_ents_adj, ents_near_ents_num)
+    near_rels_graph = (near_rels_adj, ents_near_rels_num, rels_near_ents_num)
 
     # print("near_ents_adj:", near_ents_adj)
-    # print("near_ents_num:", near_ents_num, near_ents_num.shape)
+    # print("ents_near_ents_num:", ents_near_ents_num, ents_near_ents_num.shape)
     # print("near_rels_adj:", near_rels_adj)
-    # print("near_rels_num:", near_rels_num, near_rels_num.shape)
+    # print("ents_near_rels_num:", ents_near_rels_num, ents_near_rels_num.shape)
+    # print("rels_near_ents_num:", rels_near_ents_num, rels_near_ents_num.shape)
     # os.system("pause")
 
     end = time.time()
