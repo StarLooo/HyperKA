@@ -9,6 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    A = torch.tensor([[1, 2, 3.], [1, 2, 3], [1, 2, 3], [1, 2, 3]])
+    print(torch.softmax(A, dim=1))
+    os.system("pause")
+
     print(igraph.__version__)
     print(scipy.__version__)
     os.system("pause")

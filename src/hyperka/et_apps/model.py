@@ -11,7 +11,7 @@ from src.hyperka.et_funcs.test_funcs import eval_type_hyperbolic
 from src.hyperka.hyperbolic.poincare import PoincareManifold
 
 
-class GCNLayer(nn.Module):
+class GATLayer(nn.Module):
     def __init__(self, near_ents_adj, near_rels_adj, near_ents_num, near_rels_num, input_dim, output_dim, layer_id,
                  poincare: PoincareManifold, has_bias: bool = True, activation: nn.Module = None,
                  another_attention_mode: bool = False):
@@ -26,7 +26,7 @@ class GCNLayer(nn.Module):
         self.n_entities, self.n_rels = near_rels_adj.shape
         self.input_dim = input_dim
         self.output_dim = output_dim
-        # TODO: 两个线性变换
+        # 两个线性变换
         self.W_ent = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
@@ -45,7 +45,7 @@ class GCNLayer(nn.Module):
         self.another_attention_mode = another_attention_mode
 
     def forward(self, ents_embed_input: torch.Tensor, rels_embed_input: torch.Tensor, drop_rate: float = 0.0,
-                combine_rels_weight: float = 0.025):
+                combine_rels_weight: float = 0.1):
         assert 0.0 <= drop_rate < 1.0
         # TODO:映射到欧氏空间
         ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_input)
@@ -53,22 +53,14 @@ class GCNLayer(nn.Module):
         if drop_rate > 0.0:
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
             # TODO: 不过貌似实际上并没有drop_out
-            pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) * (
+            ents_pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) * (
                     1 - drop_rate)  # not scaled up
             rels_pre_sup_tangent = F.dropout(rels_pre_sup_tangent, p=drop_rate, training=self.training) * (
                     1 - drop_rate)  # not scaled up
         assert ents_pre_sup_tangent.shape[1] == self.W_ent.shape[0]
         assert rels_pre_sup_tangent.shape[1] == self.W_rel.shape[0]
         ents_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
-        rels_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_rel)
-        # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
-        # print("adj.shape:", self.adj.shape)
-        # print("adj:", self.adj)
-        # print("adj.requires_grad:", self.adj.requires_grad)
-        # print("output.shape:", output.shape)
-        # print(self.adj.dtype)
-        # output = torch.sparse.mm(self.adj, output)
-        # os.system("pause")
+        rels_embed_mapped = torch.mm(rels_pre_sup_tangent, self.W_rel)
 
         # TODO: 实体消息传递的时候ents_embed_input是否需要detach()?
         # attention method 2
@@ -83,35 +75,23 @@ class GCNLayer(nn.Module):
                 self.near_ents_adj)
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is False
-
-        # print("alpha_matrix", alpha_matrix)
-        # print("alpha_matrix row_sum", torch.sparse.sum(alpha_matrix, dim=1))
-        # os.system("pause")
-
         near_ents_embeddings = torch.sparse.mm(alpha_matrix, ents_embed_mapped)
+        near_ents_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(near_ents_embeddings))
 
         # TODO: 关系消息传递的时候rels_embed_input是否需要detach()?
-        edge_embeddings = rels_embed_input[self.near_rels_adj.values()]
-        # print("edge_embeddings.shape:", edge_embeddings.shape)
+        edge_embeddings = rels_embed_mapped[self.near_rels_adj.values()]
         near_rels_embed_adj = torch.sparse_coo_tensor(indices=self.near_rels_adj.indices(), values=edge_embeddings,
                                                       size=(self.n_entities, self.n_rels, self.output_dim),
                                                       device=ut.try_gpu())
         near_rels_embeddings = torch.sparse.sum(near_rels_embed_adj, dim=1).to_dense()
-        # print("near_rels_embeddings.shape:", near_rels_embeddings.shape)
-        # print("near_rels_embeddings:", near_rels_embeddings)
-        # print("near_rels_num.shape:", self.near_rels_num.shape)
         near_rels_embeddings = near_rels_embeddings / self.near_rels_num.unsqueeze(1)
-        assert near_rels_embeddings.shape == near_ents_embeddings.shape == ents_embed_input.shape
+        near_rels_embeddings = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(near_rels_embeddings))
 
-        # print("near_ents_embeddings:", near_ents_embeddings)
-        # print("ents_embed_input:", ents_embed_input)
-        # print("near_rels_embeddings:", near_rels_embeddings)
-        # print("rels_embed_input:", rels_embed_input)
-        # os.system("pause")
+        assert near_rels_embeddings.shape == near_ents_embeddings.shape == ents_embed_input.shape
 
         # TODO: 结合实体消息传递和关系消息传递
         near_embeddings_output = self.poincare.hyperbolic_projection(
-            self.poincare.exp_map_zero(near_ents_embeddings + combine_rels_weight * near_rels_embeddings))
+            self.poincare.mobius_addition(near_ents_embeddings, combine_rels_weight * near_rels_embeddings))
         # TODO: 是否还需要bias
         if self.has_bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
@@ -193,32 +173,32 @@ class HyperKA(nn.Module):
         self.ins_layer_num = args.ins_layer_num
         self.onto_layer_num = args.onto_layer_num
         # ************************* instance gnn ***************************
-        self.ins_gcn_layers_list = []
+        self.ins_gat_layers_list = []
         for ins_layer_id in range(self.ins_layer_num):
             activation = self.activation
             if ins_layer_id == self.ins_layer_num - 1:
                 activation = None
-            gcn_layer = GCNLayer(near_ents_adj=self.ins_near_ents_adj, near_rels_adj=self.ins_near_rels_adj,
+            gat_layer = GATLayer(near_ents_adj=self.ins_near_ents_adj, near_rels_adj=self.ins_near_rels_adj,
                                  near_ents_num=self.ins_near_ents_num, near_rels_num=self.ins_near_rels_num,
                                  input_dim=self.args.ins_dim, output_dim=self.args.ins_dim, layer_id=ins_layer_id,
                                  poincare=self.poincare, activation=activation)
-            self.ins_gcn_layers_list.append(gcn_layer)
-            for name, param in gcn_layer.named_parameters():
+            self.ins_gat_layers_list.append(gat_layer)
+            for name, param in gat_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
         # ************************* ontology gnn ***************************
-        self.onto_gcn_layers_list = []
+        self.onto_gat_layers_list = []
         for onto_layer_id in range(self.onto_layer_num):
             activation = self.activation
             if onto_layer_id == self.onto_layer_num - 1:
                 activation = None
-            gcn_layer = GCNLayer(near_ents_adj=self.onto_near_ents_adj, near_rels_adj=self.onto_near_rels_adj,
+            gat_layer = GATLayer(near_ents_adj=self.onto_near_ents_adj, near_rels_adj=self.onto_near_rels_adj,
                                  near_ents_num=self.onto_near_ents_num, near_rels_num=self.onto_near_rels_num,
                                  input_dim=self.args.onto_dim, output_dim=self.args.onto_dim, layer_id=onto_layer_id,
                                  poincare=self.poincare, activation=activation)
-            self.onto_gcn_layers_list.append(gcn_layer)
-            for name, param in gcn_layer.named_parameters():
+            self.onto_gat_layers_list.append(gat_layer)
+            for name, param in gat_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
@@ -288,8 +268,8 @@ class HyperKA(nn.Module):
         self.link_pos_t = torch.tensor(self.link_pos_t, dtype=torch.long, device=ut.try_gpu())
         self.link_neg_t = torch.tensor(self.link_neg_t, dtype=torch.long, device=ut.try_gpu())
 
-    # 图卷积
-    def _graph_convolution(self):
+    # 图注意力
+    def _graph_attention(self):
         self.ins_ent_embeddings_output_list = list()  # reset
         self.onto_ent_embeddings_output_list = list()  # reset
 
@@ -298,9 +278,9 @@ class HyperKA(nn.Module):
         ins_ent_embeddings_output = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
         self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
         for ins_layer_id in range(self.ins_layer_num):
-            gcn_layer = self.ins_gcn_layers_list[ins_layer_id]
-            ins_ent_embeddings_output = gcn_layer.forward(ins_ent_embeddings_output, self.ins_rel_embeddings)
-            ins_ent_embeddings_output = self.poincare.mobius_addition(ins_ent_embeddings_output,
+            gat_layer = self.ins_gat_layers_list[ins_layer_id]
+            ins_near_embeddings_output = gat_layer.forward(ins_ent_embeddings_output, self.ins_rel_embeddings)
+            ins_ent_embeddings_output = self.poincare.mobius_addition(ins_near_embeddings_output,
                                                                       self.ins_ent_embeddings_output_list[-1])
             ins_ent_embeddings_output = self.poincare.hyperbolic_projection(ins_ent_embeddings_output)
             self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
@@ -310,9 +290,9 @@ class HyperKA(nn.Module):
         onto_ent_embeddings_output = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
         self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
         for onto_layer_id in range(self.onto_layer_num):
-            gcn_layer = self.onto_gcn_layers_list[onto_layer_id]
-            onto_ent_embeddings_output = gcn_layer.forward(onto_ent_embeddings_output, self.onto_rel_embeddings)
-            onto_ent_embeddings_output = self.poincare.mobius_addition(onto_ent_embeddings_output,
+            gat_layer = self.onto_gat_layers_list[onto_layer_id]
+            onto_near_embeddings_output = gat_layer.forward(onto_ent_embeddings_output, self.onto_rel_embeddings)
+            onto_ent_embeddings_output = self.poincare.mobius_addition(onto_near_embeddings_output,
                                                                        self.onto_ent_embeddings_output_list[-1])
             onto_ent_embeddings_output = self.poincare.hyperbolic_projection(onto_ent_embeddings_output)
             self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
@@ -320,7 +300,8 @@ class HyperKA(nn.Module):
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
     def _adapt_riemannian_optimizer(self, optimizer, loss, named_train_params):
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         optimizer.zero_grad()
         loss.backward()
         # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
@@ -337,8 +318,8 @@ class HyperKA(nn.Module):
     def _compute_triple_loss(self, phs, prs, pts, nhs, nrs, nts):
         pos_distance = self.poincare.distance(self.poincare.mobius_addition(phs, prs), pts)
         neg_distance = self.poincare.distance(self.poincare.mobius_addition(nhs, nrs), nts)
-        pos_score = torch.sum(pos_distance, 1)
-        neg_score = torch.sum(neg_distance, 1)
+        pos_score = torch.sum(pos_distance, dim=1)
+        neg_score = torch.sum(neg_distance, dim=1)
         pos_loss = torch.sum(torch.relu(pos_score))
         neg_loss = torch.sum(
             torch.relu(torch.tensor(data=self.args.neg_triple_margin, dtype=torch.float64) - neg_score))
@@ -395,7 +376,7 @@ class HyperKA(nn.Module):
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
         # start = time.time()
-        self._graph_convolution()
+        self._graph_attention()
         # end = time.time()
         # print("graph attention time cost:", round(end - start, 2), "s")
 
@@ -445,8 +426,8 @@ class HyperKA(nn.Module):
             ins_embeddings = self.poincare.mobius_addition(ins_embeddings, self.ins_ent_embeddings_output_list[0])
             onto_embeddings = self.poincare.mobius_addition(onto_embeddings, self.onto_ent_embeddings_output_list[0])
         test_ins_embeddings = F.embedding(
-               input=torch.tensor(data=self.test_instype_head, dtype=torch.long, device=ut.try_gpu()),
-               weight=ins_embeddings)
+            input=torch.tensor(data=self.test_instype_head, dtype=torch.long, device=ut.try_gpu()),
+            weight=ins_embeddings)
         # test_ins_embeddings = F.embedding(input=torch.LongTensor(self.test_instype_head), weight=ins_embeddings)
         test_ins_embeddings = self.poincare.hyperbolic_projection(test_ins_embeddings)
         test_ins_embeddings = torch.matmul(self.poincare.log_map_zero(test_ins_embeddings), self.ins_mapping_matrix)
