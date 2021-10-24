@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
-import ast
 import argparse
-import os
+import ast
 import torch
-from hyperka.et_apps.model import HyperKA
-from hyperka.et_funcs.train_funcs import get_model, train_k_epochs
+from src.hyperka.et_apps.model import HyperKA
+from src.hyperka.et_funcs.train_funcs import get_model, train_k_epochs
 
 parser = argparse.ArgumentParser(description='HyperKA_ET')
-parser.add_argument('--input', type=str, default='../../../dataset/joie/yago/')  # 路径
-parser.add_argument('--output', type=str, default='../../../output/results/')  # 路径
+parser.add_argument('--input', type=str, default='./dataset/joie/yago/')  # 路径
+parser.add_argument('--output', type=str, default='./output/results/')  # 路径
 
 parser.add_argument('--ins_dim', type=int, default=75)  # instance嵌入向量的维度
 parser.add_argument('--onto_dim', type=int, default=15)  # ontology嵌入向量的维度
@@ -37,6 +36,7 @@ parser.add_argument('--nums_threads', type=int, default=1)  # TODO: 多线程数
 '''
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method("spawn")
     args = parser.parse_args()
     print("show the args:")
     print(args)

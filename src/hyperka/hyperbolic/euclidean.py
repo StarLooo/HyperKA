@@ -1,8 +1,6 @@
 from abc import ABC
-
 import torch
-
-from hyperka.hyperbolic.manifold import Manifold
+from src.hyperka.hyperbolic.manifold import Manifold
 
 
 class EuclideanManifold(Manifold, ABC):

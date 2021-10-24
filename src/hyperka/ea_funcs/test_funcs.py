@@ -3,8 +3,8 @@ import numpy as np
 import time
 import ray
 
-from hyperka.ea_funcs.utils import div_list
-from hyperka.hyperbolic.metric import compute_hyperbolic_distances, normalization
+from src.hyperka.ea_funcs.utils import div_list
+from src.hyperka.hyperbolic.metric import compute_hyperbolic_distances, normalization
 
 g = 1000000000
 

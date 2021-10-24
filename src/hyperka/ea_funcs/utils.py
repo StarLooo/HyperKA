@@ -1,7 +1,7 @@
 import numpy as np
 import time
 
-from hyperka.ea_funcs.triples import Triples
+from src.hyperka.ea_funcs.triples import Triples
 
 
 # TODO: may be useless

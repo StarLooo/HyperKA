@@ -3,9 +3,9 @@ import math
 import random
 import time
 
-import hyperka.et_funcs.utils as ut
-from hyperka.ea_funcs.train_funcs import find_neighbours_multi
-from hyperka.et_apps.util import generate_adjacent_graph
+import src.hyperka.et_funcs.utils as ut
+from src.hyperka.ea_funcs.train_funcs import find_neighbours_multi
+from src.hyperka.et_apps.util import generate_adjacent_graph
 
 
 # 根据相应参数初始化模型
@@ -76,11 +76,11 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
     start = time.time()
     # 一个epoch需要跑steps步，每一步跑batch_size大小的数据
     steps = math.ceil(ins_triples.triples_num / args.batch_size)
-    print("steps per epoch:", steps)
+    # print("steps per epoch:", steps)
     link_batch_size = math.ceil(len(model.train_instype_head) / steps)
     for step in range(1, steps + 1):
-        if step % 5 == 1:
-            print("\tstep:", step)
+        # if step % 5 == 1:
+        #     print("\tstep:", step)
         triple_step_loss, triple_step_time = train_triple_1_step(model, ins_triples, onto_triples, step, args,
                                                                  neighbours_of_ins_triples, neighbours_of_onto_triples)
         triple_loss += triple_step_loss

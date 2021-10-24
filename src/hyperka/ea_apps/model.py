@@ -6,10 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from hyperka.et_apps.util import embed_init
-from hyperka.hyperbolic.euclidean import EuclideanManifold
-from hyperka.hyperbolic.poincare import PoincareManifold
-from hyperka.ea_funcs.test_funcs import eval_alignment_hyperbolic_multi
+from src.hyperka.et_apps.util import embed_init
+from src.hyperka.hyperbolic.euclidean import EuclideanManifold
+from src.hyperka.hyperbolic.poincare import PoincareManifold
+from src.hyperka.ea_funcs.test_funcs import eval_alignment_hyperbolic_multi
 
 g = 1024 * 1024
 

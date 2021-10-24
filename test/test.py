@@ -2,11 +2,16 @@
 
 import os
 import numpy as np
+import scipy
+import igraph
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 if __name__ == '__main__':
+    print(igraph.__version__)
+    print(scipy.__version__)
+    os.system("pause")
     uncoalesced_A = torch.sparse_coo_tensor(indices=[[0, 0, 0, 0, 1, 1, 2, 2], [1, 1, 2, 2, 2, 2, 0, 1]],
                                             values=[[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]],
                                             size=(3, 3, 2))

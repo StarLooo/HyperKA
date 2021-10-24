@@ -5,14 +5,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import hyperka.et_apps.util as ut
-from hyperka.et_apps.util import embed_init
-from hyperka.et_funcs.test_funcs import eval_type_hyperbolic
-from hyperka.hyperbolic.poincare import PoincareManifold
+import src.hyperka.et_apps.util as ut
+from src.hyperka.et_apps.util import embed_init
+from src.hyperka.et_funcs.test_funcs import eval_type_hyperbolic
+from src.hyperka.hyperbolic.poincare import PoincareManifold
 
 
-# TODO:因为没有理解adj所以对卷图积层的作用不是很明白
-# TODO:开始添加注意力机制
 class GCNLayer(nn.Module):
     def __init__(self, near_ents_adj, near_rels_adj, near_ents_num, near_rels_num, input_dim, output_dim, layer_id,
                  poincare: PoincareManifold, has_bias: bool = True, activation: nn.Module = None,
@@ -28,7 +26,7 @@ class GCNLayer(nn.Module):
         self.n_entities, self.n_rels = near_rels_adj.shape
         self.input_dim = input_dim
         self.output_dim = output_dim
-        # TODO: 加入注意力机制后还需要这个线性变换吗？
+        # TODO: 两个线性变换
         self.W_ent = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
@@ -43,26 +41,26 @@ class GCNLayer(nn.Module):
             self.bias_vec = nn.Parameter(
                 torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         else:
-            # TODO: 不知道这里register_parameter是否是多余的
             self.register_parameter("bias_vec", None)
         self.another_attention_mode = another_attention_mode
 
     def forward(self, ents_embed_input: torch.Tensor, rels_embed_input: torch.Tensor, drop_rate: float = 0.0,
-                combine_rels_weight: float = 0.1):
+                combine_rels_weight: float = 0.025):
         assert 0.0 <= drop_rate < 1.0
+        # TODO:映射到欧氏空间
         ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_input)
         rels_pre_sup_tangent = self.poincare.log_map_zero(rels_embed_input)
         if drop_rate > 0.0:
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
             # TODO: 不过貌似实际上并没有drop_out
-            pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) / (
+            pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) * (
                     1 - drop_rate)  # not scaled up
-            rels_pre_sup_tangent = F.dropout(rels_pre_sup_tangent, p=drop_rate, training=self.training) / (
-                    1 - drop_rate)
+            rels_pre_sup_tangent = F.dropout(rels_pre_sup_tangent, p=drop_rate, training=self.training) * (
+                    1 - drop_rate)  # not scaled up
         assert ents_pre_sup_tangent.shape[1] == self.W_ent.shape[0]
         assert rels_pre_sup_tangent.shape[1] == self.W_rel.shape[0]
         ents_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
-        rels_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
+        rels_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_rel)
         # output = torch.spmm(self.adj, output) //torch.spmm稀疏矩阵乘法的位置已经移动到torch.sparse中(使用的torch版本：1.9.0)
         # print("adj.shape:", self.adj.shape)
         # print("adj:", self.adj)
@@ -72,6 +70,7 @@ class GCNLayer(nn.Module):
         # output = torch.sparse.mm(self.adj, output)
         # os.system("pause")
 
+        # TODO: 实体消息传递的时候ents_embed_input是否需要detach()?
         # attention method 2
         if self.another_attention_mode:
             alpha_matrix = F.leaky_relu(torch.matmul(ents_embed_mapped.detach(), self.w)).t().expand(
@@ -91,7 +90,7 @@ class GCNLayer(nn.Module):
 
         near_ents_embeddings = torch.sparse.mm(alpha_matrix, ents_embed_mapped)
 
-        # TODO: 关系消息传递的时候是否需要detach()
+        # TODO: 关系消息传递的时候rels_embed_input是否需要detach()?
         edge_embeddings = rels_embed_input[self.near_rels_adj.values()]
         # print("edge_embeddings.shape:", edge_embeddings.shape)
         near_rels_embed_adj = torch.sparse_coo_tensor(indices=self.near_rels_adj.indices(), values=edge_embeddings,
@@ -110,6 +109,7 @@ class GCNLayer(nn.Module):
         # print("rels_embed_input:", rels_embed_input)
         # os.system("pause")
 
+        # TODO: 结合实体消息传递和关系消息传递
         near_embeddings_output = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(near_ents_embeddings + combine_rels_weight * near_rels_embeddings))
         # TODO: 是否还需要bias
@@ -119,7 +119,8 @@ class GCNLayer(nn.Module):
             near_embeddings_output = self.poincare.hyperbolic_projection(near_embeddings_output)
         if self.activation is not None:
             near_embeddings_output = self.activation(self.poincare.log_map_zero(near_embeddings_output))
-            near_embeddings_output = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(near_embeddings_output))
+            near_embeddings_output = self.poincare.hyperbolic_projection(
+                self.poincare.exp_map_zero(near_embeddings_output))
         assert near_embeddings_output.requires_grad is True
         return near_embeddings_output
 
@@ -266,26 +267,26 @@ class HyperKA(nn.Module):
     # 我自己加了这个函数，用于解决tf版本代码中placeholder和feed_dict翻译的问题
     def _trans_triple_pos_neg_batch(self, triple_pos_neg_batch):
         ins_pos, ins_neg, onto_pos, onto_neg = triple_pos_neg_batch
-        self.ins_pos_h = torch.LongTensor([x[0] for x in ins_pos])
-        self.ins_pos_r = torch.LongTensor([x[1] for x in ins_pos])
-        self.ins_pos_t = torch.LongTensor([x[2] for x in ins_pos])
-        self.ins_neg_h = torch.LongTensor([x[0] for x in ins_neg])
-        self.ins_neg_r = torch.LongTensor([x[1] for x in ins_neg])
-        self.ins_neg_t = torch.LongTensor([x[2] for x in ins_neg])
-        self.onto_pos_h = torch.LongTensor([x[0] for x in onto_pos])
-        self.onto_pos_r = torch.LongTensor([x[1] for x in onto_pos])
-        self.onto_pos_t = torch.LongTensor([x[2] for x in onto_pos])
-        self.onto_neg_h = torch.LongTensor([x[0] for x in onto_neg])
-        self.onto_neg_r = torch.LongTensor([x[1] for x in onto_neg])
-        self.onto_neg_t = torch.LongTensor([x[2] for x in onto_neg])
+        self.ins_pos_h = torch.tensor(data=[x[0] for x in ins_pos], dtype=torch.long, device=ut.try_gpu())
+        self.ins_pos_r = torch.tensor(data=[x[1] for x in ins_pos], dtype=torch.long, device=ut.try_gpu())
+        self.ins_pos_t = torch.tensor(data=[x[2] for x in ins_pos], dtype=torch.long, device=ut.try_gpu())
+        self.ins_neg_h = torch.tensor(data=[x[0] for x in ins_neg], dtype=torch.long, device=ut.try_gpu())
+        self.ins_neg_r = torch.tensor(data=[x[1] for x in ins_neg], dtype=torch.long, device=ut.try_gpu())
+        self.ins_neg_t = torch.tensor(data=[x[2] for x in ins_neg], dtype=torch.long, device=ut.try_gpu())
+        self.onto_pos_h = torch.tensor(data=[x[0] for x in onto_pos], dtype=torch.long, device=ut.try_gpu())
+        self.onto_pos_r = torch.tensor(data=[x[1] for x in onto_pos], dtype=torch.long, device=ut.try_gpu())
+        self.onto_pos_t = torch.tensor(data=[x[2] for x in onto_pos], dtype=torch.long, device=ut.try_gpu())
+        self.onto_neg_h = torch.tensor(data=[x[0] for x in onto_neg], dtype=torch.long, device=ut.try_gpu())
+        self.onto_neg_r = torch.tensor(data=[x[1] for x in onto_neg], dtype=torch.long, device=ut.try_gpu())
+        self.onto_neg_t = torch.tensor(data=[x[2] for x in onto_neg], dtype=torch.long, device=ut.try_gpu())
 
     # 我自己加了这个函数，用于解决tf版本代码中placeholder和feed_dict翻译的问题
     def _trans_mapping_pos_neg_batch(self, mapping_pos_neg_batch):
         self.link_pos_h, self.link_pos_t, self.link_neg_h, self.link_neg_t = mapping_pos_neg_batch
-        self.link_pos_h = torch.LongTensor(self.link_pos_h)
-        self.link_neg_h = torch.LongTensor(self.link_neg_h)
-        self.link_pos_t = torch.LongTensor(self.link_pos_t)
-        self.link_neg_t = torch.LongTensor(self.link_neg_t)
+        self.link_pos_h = torch.tensor(self.link_pos_h, dtype=torch.long, device=ut.try_gpu())
+        self.link_neg_h = torch.tensor(self.link_neg_h, dtype=torch.long, device=ut.try_gpu())
+        self.link_pos_t = torch.tensor(self.link_pos_t, dtype=torch.long, device=ut.try_gpu())
+        self.link_neg_t = torch.tensor(self.link_neg_t, dtype=torch.long, device=ut.try_gpu())
 
     # 图卷积
     def _graph_convolution(self):
@@ -319,6 +320,7 @@ class HyperKA(nn.Module):
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
     def _adapt_riemannian_optimizer(self, optimizer, loss, named_train_params):
+        torch.cuda.empty_cache()
         optimizer.zero_grad()
         loss.backward()
         # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
@@ -393,12 +395,12 @@ class HyperKA(nn.Module):
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
         # start = time.time()
-        # 进行论文中所说的图卷积
         self._graph_convolution()
         # end = time.time()
         # print("graph attention time cost:", round(end - start, 2), "s")
 
         # ins_ent_embeddings和onto_ent_embeddings卷积后得到的嵌入向量
+        # TODO:这里是否需要赋值给self.ins_ent_embeddings(Parameter)
         ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]
         onto_ent_embeddings = self.onto_ent_embeddings_output_list[-1]
         if self.args.combine:
@@ -442,8 +444,10 @@ class HyperKA(nn.Module):
         if self.args.combine:
             ins_embeddings = self.poincare.mobius_addition(ins_embeddings, self.ins_ent_embeddings_output_list[0])
             onto_embeddings = self.poincare.mobius_addition(onto_embeddings, self.onto_ent_embeddings_output_list[0])
-
-        test_ins_embeddings = F.embedding(input=torch.LongTensor(self.test_instype_head), weight=ins_embeddings)
+        test_ins_embeddings = F.embedding(
+               input=torch.tensor(data=self.test_instype_head, dtype=torch.long, device=ut.try_gpu()),
+               weight=ins_embeddings)
+        # test_ins_embeddings = F.embedding(input=torch.LongTensor(self.test_instype_head), weight=ins_embeddings)
         test_ins_embeddings = self.poincare.hyperbolic_projection(test_ins_embeddings)
         test_ins_embeddings = torch.matmul(self.poincare.log_map_zero(test_ins_embeddings), self.ins_mapping_matrix)
         test_ins_embeddings = self.poincare.exp_map_zero(test_ins_embeddings)

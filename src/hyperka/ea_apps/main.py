@@ -2,8 +2,8 @@
 import argparse
 import ast
 
-from hyperka.ea_apps.model import HyperKA
-from hyperka.ea_funcs.train_funcs import get_model, train_k_epochs, semi_alignment
+from src.hyperka.ea_apps.model import HyperKA
+from src.hyperka.ea_funcs.train_funcs import get_model, train_k_epochs, semi_alignment
 
 # import ray
 

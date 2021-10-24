@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 
-from hyperka.hyperbolic.euclidean import EuclideanManifold
-from hyperka.hyperbolic.util import util_norm, util_tanh, util_atanh
+from src.hyperka.hyperbolic.euclidean import EuclideanManifold
+from src.hyperka.hyperbolic.util import util_norm, util_tanh, util_atanh
 
 DEBUG = False
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from hyperka.et_funcs.triples import Triples
+from src.hyperka.et_funcs.triples import Triples
 
 
 # 读入全部所需数据

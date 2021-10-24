@@ -9,11 +9,11 @@ import numpy as np
 import ray
 from sklearn import preprocessing
 
-import hyperka.ea_funcs.utils as ut
-from hyperka.ea_apps.util import generate_adjacent_graph
-from hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
-from hyperka.ea_funcs.train_bp import bootstrapping
-from hyperka.hyperbolic.metric import compute_hyperbolic_similarity, normalization
+import src.hyperka.ea_funcs.utils as ut
+from src.hyperka.ea_apps.util import generate_adjacent_graph
+from src.hyperka.ea_funcs.test_funcs import sim_handler_hyperbolic
+from src.hyperka.ea_funcs.train_bp import bootstrapping
+from src.hyperka.hyperbolic.metric import compute_hyperbolic_similarity, normalization
 
 g = 1000000000
 
