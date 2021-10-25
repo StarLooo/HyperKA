@@ -60,8 +60,6 @@ if __name__ == '__main__':
     source_triples, target_triples, model = get_model(args.input, HyperKA, args)
     print("get model finished\n")
 
-    os.system("pause")
-
     # hits1, old_hits1 = None, None
     # TODO: 不知道trunc_source_ent_num的意义
     trunc_source_ent_num = int(len(source_triples.ent_list) * (1.0 - args.epsilon4triple))

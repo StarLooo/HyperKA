@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import gc
 import math
-import os
 import random
 import sys
 import time
@@ -46,8 +45,10 @@ def get_model(folder, kge_model, args):
     # 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
     all_triples_list = source_triples.triple_list + target_triples.triple_list + \
                        enhanced_source_triples_list + enhanced_target_triples_list
-    all_aligned_triples_list = remove_unlinked_triples(all_triples_list=all_triples_list,
-                                                       linked_entities=linked_entities)
+    # TODO: 暂时先跳过remove_unlinked_triples()这一步
+    # all_aligned_triples_list = remove_unlinked_triples(all_triples_list=all_triples_list,
+    #                                                    linked_entities=linked_entities)
+    all_aligned_triples_list = all_triples_list
 
     # 这里应该与et里是一样的
     near_ents_graph, near_rels_graph = generate_adjacent_graph(total_ents_num=total_ents_num,

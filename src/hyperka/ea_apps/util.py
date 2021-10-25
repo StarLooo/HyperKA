@@ -197,12 +197,12 @@ def generate_graph(total_ents_num, total_rels_num, triples):
     near_ents_graph = (near_ents_adj, ents_near_ents_num)
     near_rels_graph = (near_rels_adj, ents_near_rels_num, rels_near_ents_num)
 
-    print("near_ents_adj:", near_ents_adj)
-    print("ents_near_ents_num:", ents_near_ents_num, ents_near_ents_num.shape, (ents_near_ents_num == 0).sum())
-    print("near_rels_adj:", near_rels_adj)
-    print("ents_near_rels_num:", ents_near_rels_num, ents_near_rels_num.shape, (ents_near_rels_num == 0).sum())
-    print("rels_near_ents_num:", rels_near_ents_num, rels_near_ents_num.shape, (rels_near_ents_num == 0).sum())
-    os.system("pause")
+    # print("near_ents_adj:", near_ents_adj)
+    # print("ents_near_ents_num:", ents_near_ents_num, ents_near_ents_num.shape, (ents_near_ents_num == 0).sum())
+    # print("near_rels_adj:", near_rels_adj)
+    # print("ents_near_rels_num:", ents_near_rels_num, ents_near_rels_num.shape, (ents_near_rels_num == 0).sum())
+    # print("rels_near_ents_num:", rels_near_ents_num, rels_near_ents_num.shape, (rels_near_ents_num == 0).sum())
+    # os.system("pause")
 
     end = time.time()
     print('generating KG costs time: {:.4f}s'.format(end - start))

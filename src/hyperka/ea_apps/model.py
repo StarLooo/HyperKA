@@ -294,8 +294,8 @@ class HyperKA(nn.Module):
     def _compute_triple_loss(self, phs, prs, pts, nhs, nrs, nts):
         pos_distance = self.poincare.distance(self.poincare.mobius_addition(phs, prs), pts)
         neg_distance = self.poincare.distance(self.poincare.mobius_addition(nhs, nrs), nts)
-        pos_score = torch.sum(pos_distance, 1)
-        neg_score = torch.sum(neg_distance, 1)
+        pos_score = torch.sum(pos_distance, dim=1)
+        neg_score = torch.sum(neg_distance, dim=1)
         pos_loss = torch.sum(torch.relu(pos_score))
         neg_loss = torch.sum(
             torch.relu(torch.tensor(data=self.args.neg_triple_margin, dtype=torch.float64) - neg_score))
@@ -305,7 +305,6 @@ class HyperKA(nn.Module):
     # 计算mapping loss的内部函数
     def _compute_mapping_loss(self, mapped_mapping_phs_embeds, mapping_pts_embeds, mapped_mapping_nhs_embeds,
                               mapping_nts_embeds, mapped_mapping_new_phs_embeds, mapping_new_pts_embeds):
-
         pos_distance = torch.sum(self.poincare.distance(mapped_mapping_phs_embeds, mapping_pts_embeds), dim=1)
         neg_distance = torch.sum(self.poincare.distance(mapped_mapping_nhs_embeds, mapping_nts_embeds), dim=1)
         new_pos_distance = torch.sum(self.poincare.distance(mapped_mapping_new_phs_embeds, mapping_pts_embeds), dim=1)
@@ -343,7 +342,7 @@ class HyperKA(nn.Module):
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
         # 进行论文中所说的图卷积
-        self._graph_convolution(self.args.drop_rate)
+        self._graph_attention(self.args.drop_rate)
         # 卷积后得到的嵌入向量
         ent_embeddings = self.ent_embeddings_output_list[-1]
         if self.args.combine:
@@ -398,43 +397,53 @@ class HyperKA(nn.Module):
                 self.poincare.mobius_matmul(target_embeds, self.mapping_matrix))
         return target_embeds.detach()
 
-    # 为了测试的图卷积
-    def _graph_convolution_for_evaluation(self):
+    # 为了测试的图注意力
+    def _graph_attention_for_evaluation(self):
         eval_ent_embeddings_output_list = list()
+        eval_rel_embeddings_output_list = list()
         ent_embeddings = self.ent_embeddings.detach()
-        # In this case, we assume that the initialized embeddings are in the hyperbolic space.
+        rel_embeddings = self.rel_embeddings.detach()
         ent_embeddings_output = self.poincare.hyperbolic_projection(ent_embeddings)
-        assert ent_embeddings_output.requires_grad is False
+        rel_embeddings_output = self.poincare.hyperbolic_projection(rel_embeddings)
+        assert ent_embeddings_output.requires_grad is False and rel_embeddings_output.requires_grad is False
         eval_ent_embeddings_output_list.append(ent_embeddings_output)
+        eval_rel_embeddings_output_list.append(rel_embeddings_output)
         for layer_id in range(self.layer_num):
-            gcn_layer = self.gcn_layers_list[layer_id]
-            ent_embeddings_output = gcn_layer.forward(ent_embeddings_output, drop_rate=0).detach()
-            ent_embeddings_output = self.poincare.mobius_addition(ent_embeddings_output,
+            gat_layer = self.gat_layers_list[layer_id]
+            ent_near_embeddings, rel_near_embeddings = gat_layer.forward(ent_embeddings_output, rel_embeddings_output)
+            ent_embeddings_output = self.poincare.mobius_addition(ent_near_embeddings.detach(),
                                                                   eval_ent_embeddings_output_list[-1])
+            rel_embeddings_output = self.poincare.mobius_addition(rel_near_embeddings.detach(),
+                                                                  eval_rel_embeddings_output_list[-1])
             ent_embeddings_output = self.poincare.hyperbolic_projection(ent_embeddings_output)
-            assert ent_embeddings_output.requires_grad is False
+            rel_embeddings_output = self.poincare.hyperbolic_projection(rel_embeddings_output)
+            assert ent_embeddings_output.requires_grad is False and rel_embeddings_output.requires_grad is False
             eval_ent_embeddings_output_list.append(ent_embeddings_output)
+            eval_rel_embeddings_output_list.append(rel_embeddings_output)
 
         if self.args.combine:
-            return self.poincare.hyperbolic_projection(
+            ent_embeddings_output = self.poincare.hyperbolic_projection(
                 self.poincare.mobius_addition(ent_embeddings_output, eval_ent_embeddings_output_list[0]))
-        assert ent_embeddings_output.requires_grad is False
-        return ent_embeddings_output
+            rel_embeddings_output = self.poincare.hyperbolic_projection(
+                self.poincare.mobius_addition(rel_embeddings_output, eval_rel_embeddings_output_list[0]))
+        assert ent_embeddings_output.requires_grad is False and rel_embeddings_output.requires_grad is False
+        return ent_embeddings_output, rel_embeddings_output
 
     # 进行测试
     # TODO:测试的逻辑还不是很明白
     def test(self, k=10):
         start = time.time()
-        output_embeddings = self._graph_convolution_for_evaluation()
-        assert output_embeddings.requires_grad is False
-        ref_source_aligned_ents_embed = F.embedding(weight=output_embeddings,
+        ent_embeddings_output, rel_embeddings_output = self._graph_attention_for_evaluation()
+        ref_source_aligned_ents_embed = F.embedding(weight=ent_embeddings_output,
                                                     input=torch.LongTensor(self.ref_source_aligned_ents))
-        ref_target_aligned_ents_embed = F.embedding(weight=output_embeddings,
+        ref_target_aligned_ents_embed = F.embedding(weight=ent_embeddings_output,
                                                     input=torch.LongTensor(self.ref_target_aligned_ents))
-        mapped_ref_source_aligned_ents_embed = self.poincare.mobius_matmul(ref_source_aligned_ents_embed,
-                                                                           self.mapping_matrix.detach())
-        assert mapped_ref_source_aligned_ents_embed.requires_grad is False
+        mapped_ref_source_aligned_ents_embed = self.poincare.hyperbolic_projection(
+            self.poincare.mobius_matmul(ref_source_aligned_ents_embed, self.mapping_matrix.detach()))
+
+        assert ref_source_aligned_ents_embed.requires_grad is False
         assert ref_target_aligned_ents_embed.requires_grad is False
+        assert mapped_ref_source_aligned_ents_embed.requires_grad is False
 
         # TODO: TO BE FINISHED
         # if k > 0:
