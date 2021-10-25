@@ -70,14 +70,22 @@ class GATLayer(nn.Module):
         # 实体的邻域实体信息
         # attention method 2
         if self.another_attention_mode:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             alpha_matrix = F.leaky_relu(torch.matmul(ents_embed_mapped.detach(), self.w)).t().expand(
                 (self.n_entities, self.n_entities)).sparse_mask(self.near_ents_adj)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is True
         # attention method 1
         else:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             alpha_matrix = torch.matmul(ents_embed_mapped.detach(), ents_embed_mapped.detach().t()).sparse_mask(
                 self.near_ents_adj)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
             assert alpha_matrix.requires_grad is False
         ents_near_ents_embeddings = torch.sparse.mm(alpha_matrix, ents_embed_mapped)
@@ -249,6 +257,8 @@ class HyperKA(nn.Module):
         self.mapping_pos_t = torch.tensor(mapping_pos_t, dtype=torch.long, device=ut.try_gpu())
         self.mapping_neg_h = torch.tensor(mapping_neg_h, dtype=torch.long, device=ut.try_gpu())
         self.mapping_neg_t = torch.tensor(mapping_neg_t, dtype=torch.long, device=ut.try_gpu())
+        self.mapping_new_pos_h = torch.tensor(mapping_new_pos_h, dtype=torch.long, device=ut.try_gpu())
+        self.mapping_new_pos_t = torch.tensor(mapping_new_pos_t, dtype=torch.long, device=ut.try_gpu())
 
     # 图注意力
     def _graph_attention(self, drop_rate):
@@ -262,6 +272,8 @@ class HyperKA(nn.Module):
         self.rel_embeddings_output_list.append(rel_embeddings_output)
         for layer_id in range(self.layer_num):
             gat_layer = self.gat_layers_list[layer_id]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             ent_near_embeddings_output, rel_near_embeddings_output = gat_layer.forward(ent_embeddings_output,
                                                                                        rel_embeddings_output, drop_rate)
             ent_embeddings_output = self.poincare.mobius_addition(ent_embeddings_output,
@@ -435,9 +447,11 @@ class HyperKA(nn.Module):
         start = time.time()
         ent_embeddings_output, rel_embeddings_output = self._graph_attention_for_evaluation()
         ref_source_aligned_ents_embed = F.embedding(weight=ent_embeddings_output,
-                                                    input=torch.LongTensor(self.ref_source_aligned_ents))
+                                                    input=torch.tensor(data=self.ref_source_aligned_ents,
+                                                                       dtype=torch.int, device=ut.try_gpu()))
         ref_target_aligned_ents_embed = F.embedding(weight=ent_embeddings_output,
-                                                    input=torch.LongTensor(self.ref_target_aligned_ents))
+                                                    input=torch.tensor(data=self.ref_target_aligned_ents,
+                                                                       dtype=torch.int, device=ut.try_gpu()))
         mapped_ref_source_aligned_ents_embed = self.poincare.hyperbolic_projection(
             self.poincare.mobius_matmul(ref_source_aligned_ents_embed, self.mapping_matrix.detach()))
 

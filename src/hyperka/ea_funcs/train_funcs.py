@@ -157,7 +157,7 @@ def train_1_epoch(model, source_triples, target_triples, args, neighbours_of_sou
     steps = math.ceil((source_triples.triples_num + target_triples.triples_num) / args.batch_size)
     print("steps per epoch:", steps)
     mapping_batch_size = math.ceil(len(model.sup_source_aligned_ents) / steps)
-    steps = 1
+    steps = 1 # TODO: fail fast test
     for step in range(steps):
         # if step % 5 == 0:
         #     print("\tstep:", step + 1)

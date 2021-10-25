@@ -11,8 +11,8 @@ g = 1000000000
 
 # TODO:封装测试函数，内部逻辑不是很清楚，暂时当成黑箱处理
 def eval_alignment_hyperbolic_multi(embed1, embed2, top_k, nums_threads, message=""):
-    print("eval_alignment_hyperbolic_multi begin...")
     assert embed1.requires_grad is False and embed2.requires_grad is False
+    assert embed1.shape == embed2.shape
     start = time.time()
     ref_num = embed1.shape[0]
     # initial hits list
@@ -52,7 +52,6 @@ def eval_alignment_hyperbolic_multi(embed1, embed2, top_k, nums_threads, message
     print("{}, hits@{} = {}, mr = {:.3f}, mrr = {:.3f}, time = {:.3f} s ".format(message, top_k, hits, mr, mrr,
                                                                                  end - start))
     gc.collect()
-    print("eval_alignment_hyperbolic_multi finished.\n")
     return hits[0]
 
 
@@ -84,6 +83,8 @@ def cal_rank_multi_embed_hyperbolic(frag, sub_embed1, embed2, top_k):
 
 # TODO:被cal_rank_multi_embed_hyperbolic调用的计算sim_matrix的函数，内部逻辑不是很清楚，暂时当成黑箱处理
 def compute_hyperbolic_similarity_single(sub_embed1, embed2):
+    sub_embed1 = sub_embed1.cpu()
+    embed2 = sub_embed1.cpu()
     print("compute_hyperbolic_similarity_single begin...")
     x1, y1 = sub_embed1.shape  # <class 'numpy.ndarray'>
     x2, y2 = embed2.shape
