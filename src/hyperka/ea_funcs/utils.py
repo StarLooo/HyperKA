@@ -13,8 +13,10 @@ def read_other_input(folder):
     total_ents_num = len(source_triples.ents | target_triples.ents)
     total_rels_num = len(source_triples.rels | target_triples.rels)
     total_triples_num = len(source_triples.triple_list) + len(target_triples.triple_list)
-    print('total ents num:', total_ents_num)
-    print('total rels num:', len(source_triples.rels), len(target_triples.rels), total_rels_num)
+    print('total ents num: %d + %d = %d' % (
+        len(source_triples.ents), len(target_triples.ents), total_ents_num))
+    print('total rels num: %d + %d = %d' % (
+        len(source_triples.rels), len(target_triples.rels), total_rels_num))
     print('total triples num: %d + %d = %d' % (
         len(source_triples.triples), len(target_triples.triples), total_triples_num))
 
@@ -62,32 +64,6 @@ def read_dbp15k_input(folder):
         ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num
 
 
-def generate_sup_triples(triples1, triples2, ents1, ents2):
-    def generate_newly_triples(ent1, ent2, rt_dict1, hr_dict1):
-        newly_triples = set()
-        for r, t in rt_dict1.get(ent1, set()):
-            newly_triples.add((ent2, r, t))
-        for h, r in hr_dict1.get(ent1, set()):
-            newly_triples.add((h, r, ent2))
-        return newly_triples
-
-    assert len(ents1) == len(ents2)
-    newly_triples1, newly_triples2 = set(), set()
-    for i in range(len(ents1)):
-        newly_triples1 |= (generate_newly_triples(ents1[i], ents2[i], triples1.rt_dict, triples1.hr_dict))
-        newly_triples2 |= (generate_newly_triples(ents2[i], ents1[i], triples2.rt_dict, triples2.hr_dict))
-    print("supervised triples: {}, {}".format(len(newly_triples1), len(newly_triples2)))
-    return newly_triples1, newly_triples2
-
-
-def add_sup_triples(triples1, triples2, sup_ent1, sup_ent2):
-    newly_triples1, newly_triples2 = generate_sup_triples(triples1, triples2, sup_ent1, sup_ent2)
-    triples1 = Triples(triples1.triples | newly_triples1, ori_triples=triples1.triples)
-    triples2 = Triples(triples2.triples | newly_triples2, ori_triples=triples2.triples)
-    print("now triples: {}, {}".format(len(triples1.triples), len(triples2.triples)))
-    return triples1, triples2
-
-
 # 从给定的文件中读取(h,r,t)三元组，返回给定文件中所有(h,r,t)三元组组成的set
 def read_triples(file):
     triples = set()
@@ -117,6 +93,32 @@ def read_aligned_pairs(file):
         f.close()
         assert len(source_aligned_ents) == len(target_aligned_ents)
     return source_aligned_ents, target_aligned_ents
+
+
+def generate_sup_triples(triples1, triples2, ents1, ents2):
+    def generate_newly_triples(ent1, ent2, rt_dict1, hr_dict1):
+        newly_triples = set()
+        for r, t in rt_dict1.get(ent1, set()):
+            newly_triples.add((ent2, r, t))
+        for h, r in hr_dict1.get(ent1, set()):
+            newly_triples.add((h, r, ent2))
+        return newly_triples
+
+    assert len(ents1) == len(ents2)
+    newly_triples1, newly_triples2 = set(), set()
+    for i in range(len(ents1)):
+        newly_triples1 |= (generate_newly_triples(ents1[i], ents2[i], triples1.rt_dict, triples1.hr_dict))
+        newly_triples2 |= (generate_newly_triples(ents2[i], ents1[i], triples2.rt_dict, triples2.hr_dict))
+    print("supervised triples: {}, {}".format(len(newly_triples1), len(newly_triples2)))
+    return newly_triples1, newly_triples2
+
+
+def add_sup_triples(triples1, triples2, sup_ent1, sup_ent2):
+    newly_triples1, newly_triples2 = generate_sup_triples(triples1, triples2, sup_ent1, sup_ent2)
+    triples1 = Triples(triples1.triples | newly_triples1, ori_triples=triples1.triples)
+    triples2 = Triples(triples2.triples | newly_triples2, ori_triples=triples2.triples)
+    print("now triples: {}, {}".format(len(triples1.triples), len(triples2.triples)))
+    return triples1, triples2
 
 
 # (大致是)将list_input均分成num_div份

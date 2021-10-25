@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import gc
 import math
+import os
 import random
 import sys
 import time
@@ -31,7 +32,7 @@ def get_model(folder, kge_model, args):
     source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
     ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num = read_func(folder)
 
-    # TODO: linked_entities内涵为未知
+    # inked_entities中的ent为已经对齐的ent
     linked_entities = set(
         sup_source_aligned_ents + sup_target_aligned_ents + ref_source_aligned_ents + ref_target_aligned_ents)
 
@@ -43,26 +44,30 @@ def get_model(folder, kge_model, args):
     print("enhance triples finished")
 
     # 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
-    triples_list = remove_unlinked_triples(source_triples.triple_list + target_triples.triple_list +
-                                           enhanced_source_triples_list + enhanced_target_triples_list, linked_entities)
+    all_triples_list = source_triples.triple_list + target_triples.triple_list + \
+                       enhanced_source_triples_list + enhanced_target_triples_list
+    all_aligned_triples_list = remove_unlinked_triples(all_triples_list=all_triples_list,
+                                                       linked_entities=linked_entities)
 
     # 这里应该与et里是一样的
-    adj = generate_adjacent_graph(total_ents_num, triples_list)
+    near_ents_graph, near_rels_graph = generate_adjacent_graph(total_ents_num=total_ents_num,
+                                                               total_rels_num=total_rels_num,
+                                                               triples=all_aligned_triples_list)
+    print("near_ents_adj shape:", near_ents_graph[0].shape)
+    print("near_rels_adj shape:", near_rels_graph[0].shape)
+    print("generate_adjacent_graph finished\n")
 
     model = kge_model(total_ents_num, total_rels_num, sup_source_aligned_ents, sup_target_aligned_ents,
                       ref_source_aligned_ents, ref_target_aligned_ents, source_triples.ent_list,
-                      target_triples.ent_list, adj, args)
+                      target_triples.ent_list, near_ents_graph, near_rels_graph, args)
 
+    # 注意这里的source_triples和target_triples并没有去掉无法对齐的triples
     return source_triples, target_triples, model
 
 
 # 数据增强
 def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents):
     assert len(sup_source_aligned_ents) == len(sup_target_aligned_ents)
-
-    print("before enhanced:")
-    print("source KG's triples num:", len(source_triples.triples))
-    print("target KG's triples num:", len(target_triples.triples))
 
     # 这里的逻辑是：对source KG中的每一个triple(包含source_head, source_rel和source_tail)的头(source_head)和尾(source_tail)，
     # 寻找在训练集中给出的target KG中与source_head和source_tail对齐的实体(分别记为enhanced_head和enhanced_tail)。
@@ -82,26 +87,25 @@ def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup
     enhanced_target_triples_set = set()
     links_from_target_to_source = dict(zip(sup_target_aligned_ents, sup_source_aligned_ents))
     for source_head, target_rel, source_tail in target_triples.triples:
-        enhanced_head = links_from_source_to_target.get(source_head, None)
-        enhanced_tail = links_from_source_to_target.get(source_tail, None)
+        enhanced_head = links_from_target_to_source.get(source_head, None)
+        enhanced_tail = links_from_target_to_source.get(source_tail, None)
 
         if enhanced_head is not None and enhanced_tail is not None \
                 and enhanced_tail not in source_triples.out_related_ents_dict.get(enhanced_head, set()):
             enhanced_target_triples_set.add((enhanced_head, target_rel, enhanced_tail))
 
-    print("after enhanced finished")
-    print("source KG's triples num:", len(enhanced_source_triples_set))
-    print("target KG's triples num:", len(enhanced_target_triples_set))
+    print("enhanced source KG's triples num:", len(enhanced_source_triples_set))
+    print("enhanced target KG's triples num:", len(enhanced_target_triples_set))
 
     return list(enhanced_source_triples_set), list(enhanced_target_triples_set)
 
 
 # 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
-def remove_unlinked_triples(triples, linked_ents):
-    print("before removing unlinked triples num:", len(triples))
+def remove_unlinked_triples(all_triples_list, linked_entities):
+    print("before removing unlinked triples num:", len(all_triples_list))
     new_triples_set = set()
-    for head, rel, tail in triples:
-        if head in linked_ents and tail in linked_ents:
+    for head, rel, tail in all_triples_list:
+        if head in linked_entities and tail in linked_entities:
             new_triples_set.add((head, rel, tail))
     print("after removing unlinked triples num:", len(new_triples_set))
     return list(new_triples_set)

@@ -80,7 +80,6 @@ def normalize_adj(adjacent_graph):
 
 
 # 对adjacent_graph进行预处理,将其正则化并转化为tuple的表示
-# preprocess_adjacent_graph的测试可以看看下方该.py文件的main函数
 def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     # TODO: 为什么这里要加上一个单位阵

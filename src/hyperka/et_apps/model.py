@@ -195,6 +195,10 @@ class HyperKA(nn.Module):
 
         self.ins_layer_num = args.ins_layer_num
         self.onto_layer_num = args.onto_layer_num
+        self.ins_ent_embeddings_output_list = list()
+        self.ins_rel_embeddings_output_list = list()
+        self.onto_ent_embeddings_output_list = list()
+        self.onto_rel_embeddings_output_list = list()
         # ************************* instance gnn ***************************
         self.ins_gat_layers_list = []
         for ins_layer_id in range(self.ins_layer_num):
@@ -267,8 +271,7 @@ class HyperKA(nn.Module):
             size = (self.args.ins_dim, self.args.onto_dim)
             print("init instance mapping matrix using", "orthogonal", "with size of", size)
             self.ins_mapping_matrix = nn.init.orthogonal_(
-                tensor=torch.empty(size=size, dtype=torch.float64,
-                                   requires_grad=True, device=ut.try_gpu()))
+                tensor=torch.empty(size=size, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
             self.ins_mapping_matrix = nn.Parameter(self.ins_mapping_matrix)
 
     # 我自己加了这个函数，用于解决tf版本代码中placeholder和feed_dict翻译的问题
@@ -289,11 +292,11 @@ class HyperKA(nn.Module):
 
     # 我自己加了这个函数，用于解决tf版本代码中placeholder和feed_dict翻译的问题
     def _trans_mapping_pos_neg_batch(self, mapping_pos_neg_batch):
-        self.link_pos_h, self.link_pos_t, self.link_neg_h, self.link_neg_t = mapping_pos_neg_batch
-        self.link_pos_h = torch.tensor(self.link_pos_h, dtype=torch.long, device=ut.try_gpu())
-        self.link_neg_h = torch.tensor(self.link_neg_h, dtype=torch.long, device=ut.try_gpu())
-        self.link_pos_t = torch.tensor(self.link_pos_t, dtype=torch.long, device=ut.try_gpu())
-        self.link_neg_t = torch.tensor(self.link_neg_t, dtype=torch.long, device=ut.try_gpu())
+        link_pos_h, link_pos_t, link_neg_h, link_neg_t = mapping_pos_neg_batch
+        self.link_pos_h = torch.tensor(link_pos_h, dtype=torch.long, device=ut.try_gpu())
+        self.link_neg_h = torch.tensor(link_neg_h, dtype=torch.long, device=ut.try_gpu())
+        self.link_pos_t = torch.tensor(link_pos_t, dtype=torch.long, device=ut.try_gpu())
+        self.link_neg_t = torch.tensor(link_neg_t, dtype=torch.long, device=ut.try_gpu())
 
     # 图注意力
     def _graph_attention(self):
