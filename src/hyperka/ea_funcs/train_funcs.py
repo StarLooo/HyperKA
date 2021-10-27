@@ -118,18 +118,18 @@ def train_k_epochs(model, source_triples, target_triples, k, args, trunc_source_
     start = time.time()
     # TODO:trunc_source_ent_num的作用不是很明白，下面这个if语句内的逻辑不清楚
     if trunc_source_ent_num > 0.1:
+        print("begin generate nearest-{} neighbours".format(trunc_source_ent_num))
         source_embeds = model.eval_source_input_embed()
         target_embeds = model.eval_target_input_embed()
-        neighbours_of_source_triples = find_neighbours_multi(source_embeds, model.source_triples_list,
-                                                             trunc_source_ent_num,
-                                                             args.nums_threads)
-        neighbours_of_target_triples = find_neighbours_multi(target_embeds, model.target_triples_list,
-                                                             trunc_source_ent_num,
-                                                             args.nums_threads)
+        neighbours_of_source_triples = find_neighbours_multi(embeds=source_embeds, ent_list=model.source_triples_list,
+                                                             k=trunc_source_ent_num, nums_threads=args.nums_threads, )
+        neighbours_of_target_triples = find_neighbours_multi(embeds=target_embeds, ent_list=model.target_triples_list,
+                                                             k=trunc_source_ent_num, nums_threads=args.nums_threads, )
         end = time.time()
         print("generate nearest-{} neighbours: {:.3f} s, size: {:.6f} G".format(trunc_source_ent_num, end - start,
                                                                                 sys.getsizeof(
                                                                                     neighbours_of_source_triples) / g))
+
     for epoch in range(k):
         print("epoch:", epoch + 1)
         triple_loss, mapping_loss, time_cost = train_1_epoch(model, source_triples, target_triples, args,
@@ -155,9 +155,8 @@ def train_1_epoch(model, source_triples, target_triples, args, neighbours_of_sou
     start = time.time()
     # 一个epoch需要跑steps部‍，每一步跑batch_size大小的数据
     steps = math.ceil((source_triples.triples_num + target_triples.triples_num) / args.batch_size)
-    print("steps per epoch:", steps)
+    # print("steps per epoch:", steps)
     mapping_batch_size = math.ceil(len(model.sup_source_aligned_ents) / steps)
-    steps = 1 # TODO: fail fast test
     for step in range(steps):
         # if step % 5 == 0:
         #     print("\tstep:", step + 1)
@@ -343,6 +342,28 @@ def get_transe_model(folder, kge_model, params):
     return ori_triples1, ori_triples2, model
 
 
+# TODO:不是很清楚这里是干嘛的
+def find_neighbours_multi(embeds, ent_list, k, nums_threads, metric='euclidean'):
+    embeds = embeds.cpu()
+    if nums_threads > 1:
+        ent_frags = ut.div_list(np.array(ent_list), nums_threads)
+        ent_frag_indexes = ut.div_list(np.array(range(len(ent_list))), nums_threads)
+        dic = dict()
+        results = []
+        for i in range(len(ent_frags)):
+            res = find_neighbours(sub_ent_list=ent_frags[i], ent_list=np.array(ent_list),
+                                  sub_ent_embed=embeds[ent_frag_indexes[i], :], ent_embed=embeds, k=k, metric=metric)
+            results.append(res)
+        for res in ray.get(results):
+            dic = ut.merge_dic(dic, res)
+    else:
+        dic = find_neighbours(sub_ent_list=np.array(ent_list), ent_list=np.array(ent_list), sub_ent_embed=embeds,
+                              ent_embed=embeds, k=k, metric=metric)
+    del embeds
+    gc.collect()
+    return dic
+
+
 # @ray.remote(num_cpus=1)
 def find_neighbours(sub_ent_list, ent_list, sub_ent_embed, ent_embed, k, metric):
     dic = dict()
@@ -411,26 +432,6 @@ def find_neighbours_multi_4link(embed1, embed2, ent_list1, ent_list2, k, params,
         return neighbors1, None
     neighbors2 = find_neighbours_multi_4link_from_sim(ent_list2, ent_list1, sim_mat.T, k, params.nums_neg)
     return neighbors1, neighbors2
-
-
-# TODO:不是很清楚这里是干嘛的
-def find_neighbours_multi(embed, ent_list, k, nums_threads, metric='euclidean'):
-    if nums_threads > 1:
-        ent_frags = ut.div_list(np.array(ent_list), nums_threads)
-        ent_frag_indexes = ut.div_list(np.array(range(len(ent_list))), nums_threads)
-        dic = dict()
-        rest = []
-        for i in range(len(ent_frags)):
-            res = find_neighbours(ent_frags[i], np.array(ent_list), embed[ent_frag_indexes[i], :], embed,
-                                  k, metric)
-            rest.append(res)
-        for res in ray.get(rest):
-            dic = ut.merge_dic(dic, res)
-    else:
-        dic = find_neighbours(np.array(ent_list), np.array(ent_list), embed, embed, k, metric)
-    del embed
-    gc.collect()
-    return dic
 
 
 # TODO:不是很清楚这里是干嘛的

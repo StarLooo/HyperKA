@@ -314,7 +314,7 @@ class HyperKA(nn.Module):
         for ins_layer_id in range(self.ins_layer_num):
             gat_layer = self.ins_gat_layers_list[ins_layer_id]
             ins_ent_near_embeddings_output, ins_rel_near_embeddings_output = gat_layer.forward(
-                ins_ent_embeddings_output, ins_rel_embeddings_output)
+                ins_ent_embeddings_output, ins_rel_embeddings_output, combine_rels_weight=self.args.combine_rels_weight)
             ins_ent_embeddings_output = self.poincare.mobius_addition(ins_ent_near_embeddings_output,
                                                                       self.ins_ent_embeddings_output_list[-1])
 
@@ -334,7 +334,8 @@ class HyperKA(nn.Module):
         for onto_layer_id in range(self.onto_layer_num):
             gat_layer = self.onto_gat_layers_list[onto_layer_id]
             onto_ent_near_embeddings_output, onto_rel_near_embeddings_output = gat_layer.forward(
-                onto_ent_embeddings_output, onto_rel_embeddings_output)
+                onto_ent_embeddings_output, onto_rel_embeddings_output,
+                combine_rels_weight=self.args.combine_rels_weight)
             onto_ent_embeddings_output = self.poincare.mobius_addition(onto_ent_near_embeddings_output,
                                                                        self.onto_ent_embeddings_output_list[-1])
 

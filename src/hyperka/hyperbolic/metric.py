@@ -31,12 +31,14 @@ def compute_hyperbolic_distances(vectors_u, vectors_v):
 
 
 def compute_hyperbolic_similarity(embeds1, embeds2):
+    embeds1 = embeds1.cpu()
+    embeds2 = embeds2.cpu()
     x1, y1 = embeds1.shape  # <class 'numpy.ndarray'>
     x2, y2 = embeds2.shape
     assert y1 == y2
     dist_vec_list = list()
     for i in range(x1):
-        embed1 = embeds1[i,]  # <class 'numpy.ndarray'> (y1,)
+        embed1 = embeds1[i, :]  # <class 'numpy.ndarray'> (y1,)
         embed1 = np.reshape(embed1, (1, y1))  # (1, y1)
         embed1 = np.repeat(embed1, x2, axis=0)  # (x2, y1)
         dist_vec = compute_hyperbolic_distances(embed1, embeds2)

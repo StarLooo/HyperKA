@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # import tensorflow as tf
 import gc
+import os
 import time
 import torch
 import torch.nn as nn
@@ -121,6 +122,13 @@ class GATLayer(nn.Module):
         assert rels_near_rels_embeddings.shape == rels_embed_input.shape
 
         # TODO: 结合实体消息传递和关系消息传递
+        print("ents_near_ents_embeddings:", "\n", ents_near_ents_embeddings)
+        print("ents_near_rels_embeddings:", "\n", ents_near_rels_embeddings)
+        print("abs(ents_near_rels_embeddings / ents_near_ents_embeddings):", "\n",
+              torch.abs((ents_near_rels_embeddings / ents_near_ents_embeddings)))
+        print("(ents_near_rels_embeddings / ents_near_ents_embeddings).mean:", "\n",
+              torch.mean(torch.abs((ents_near_rels_embeddings / ents_near_ents_embeddings))))
+        os.system("pause")
         ents_near_embeddings_output = self.poincare.hyperbolic_projection(
             self.poincare.mobius_addition(ents_near_ents_embeddings, combine_rels_weight * ents_near_rels_embeddings))
         rels_near_embeddings_output = rels_near_rels_embeddings
@@ -331,6 +339,7 @@ class HyperKA(nn.Module):
 
     # 根据triple loss优化参数
     def optimize_triple_loss(self, triple_pos_neg_batch):
+
         # 这一段是不是与_generate_parameters中重复了？
         ent_embeddings = self.poincare.hyperbolic_projection(self.ent_embeddings)
         rel_embeddings = self.poincare.hyperbolic_projection(self.rel_embeddings)
@@ -391,9 +400,9 @@ class HyperKA(nn.Module):
 
     # 获取测试用的source KG中的ent embedding
     def eval_source_input_embed(self, is_map=False):
-
         source_embeds = self.poincare.hyperbolic_projection(
-            F.embedding(input=torch.LongTensor(self.source_triples_list), weight=self.ent_embeddings))
+            F.embedding(input=torch.tensor(data=self.source_triples_list, dtype=torch.int, device=ut.try_gpu()),
+                        weight=self.ent_embeddings))
         if is_map:
             source_embeds = self.poincare.hyperbolic_projection(
                 self.poincare.mobius_matmul(source_embeds, self.mapping_matrix))
@@ -401,9 +410,9 @@ class HyperKA(nn.Module):
 
     # 获取测试用的target KG中的ent embedding
     def eval_target_input_embed(self, is_map=False):
-
         target_embeds = self.poincare.hyperbolic_projection(
-            F.embedding(input=torch.LongTensor(self.target_triples_list), weight=self.ent_embeddings))
+            F.embedding(input=torch.tensor(data=self.target_triples_list, dtype=torch.int, device=ut.try_gpu()),
+                        weight=self.ent_embeddings))
         if is_map:
             target_embeds = self.poincare.hyperbolic_projection(
                 self.poincare.mobius_matmul(target_embeds, self.mapping_matrix))
@@ -445,7 +454,9 @@ class HyperKA(nn.Module):
     # TODO:测试的逻辑还不是很明白
     def test(self, k=10):
         start = time.time()
-        ent_embeddings_output, rel_embeddings_output = self._graph_attention_for_evaluation()
+        # ent_embeddings_output, rel_embeddings_output = self._graph_attention_for_evaluation()
+        ent_embeddings_output = self.ent_embeddings.detach()
+        rel_embeddings_output = self.rel_embeddings.detach()
         ref_source_aligned_ents_embed = F.embedding(weight=ent_embeddings_output,
                                                     input=torch.tensor(data=self.ref_source_aligned_ents,
                                                                        dtype=torch.int, device=ut.try_gpu()))
@@ -466,6 +477,9 @@ class HyperKA(nn.Module):
         #                                  self.args.nums_threads)
         #     hits1 = eval_alignment_mul(sim, self.args.ent_top_k, self.args.nums_threads, message)
         # else:
+
+        print("ref_target_aligned_ents_embed.shape:", ref_target_aligned_ents_embed.shape)
+
         message = "fast ent alignment by hyperbolic"
         hits1 = eval_alignment_hyperbolic_multi(mapped_ref_source_aligned_ents_embed, ref_target_aligned_ents_embed,
                                                 self.args.ent_top_k, self.args.nums_threads, message)

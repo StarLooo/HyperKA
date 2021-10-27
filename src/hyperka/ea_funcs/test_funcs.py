@@ -12,7 +12,6 @@ g = 1000000000
 # TODO:封装测试函数，内部逻辑不是很清楚，暂时当成黑箱处理
 def eval_alignment_hyperbolic_multi(embed1, embed2, top_k, nums_threads, message=""):
     assert embed1.requires_grad is False and embed2.requires_grad is False
-    assert embed1.shape == embed2.shape
     start = time.time()
     ref_num = embed1.shape[0]
     # initial hits list
@@ -58,7 +57,6 @@ def eval_alignment_hyperbolic_multi(embed1, embed2, top_k, nums_threads, message
 # TODO:被eval_alignment_hyperbolic_multi封装调用的多线程测试函数，内部逻辑不是很清楚，暂时当成黑箱处理
 # @ray.remote(num_cpus=1)
 def cal_rank_multi_embed_hyperbolic(frag, sub_embed1, embed2, top_k):
-    print("cal_rank_multi_embed_hyperbolic begin...")
     sub_mr = 0
     sub_mrr = 0
     sub_hits = np.array([0 for k in top_k])
@@ -77,15 +75,13 @@ def cal_rank_multi_embed_hyperbolic(frag, sub_embed1, embed2, top_k):
                 sub_hits[j] += 1
         results_set.add((ref, aligned_ent))
     del sim_matrix
-    print("cal_rank_multi_embed_hyperbolic finished.\n")
     return sub_mr, sub_mrr, sub_hits, results_set
 
 
 # TODO:被cal_rank_multi_embed_hyperbolic调用的计算sim_matrix的函数，内部逻辑不是很清楚，暂时当成黑箱处理
 def compute_hyperbolic_similarity_single(sub_embed1, embed2):
     sub_embed1 = sub_embed1.cpu()
-    embed2 = sub_embed1.cpu()
-    print("compute_hyperbolic_similarity_single begin...")
+    embed2 = embed2.cpu()
     x1, y1 = sub_embed1.shape  # <class 'numpy.ndarray'>
     x2, y2 = embed2.shape
     assert y1 == y2
@@ -97,13 +93,11 @@ def compute_hyperbolic_similarity_single(sub_embed1, embed2):
         dist_vec = compute_hyperbolic_distances(sub_embeds1_line, embed2)
         distance_vector_list.append(dist_vec)
     dis_mat = np.row_stack(distance_vector_list)  # (x1, x2)
-    print("compute_hyperbolic_similarity_single finished.\n")
     return normalization(-dis_mat)
 
 
 # TODO：用于bootstrapping, 被semi_alignment函数调用，内部逻辑不是很清楚，暂时当成黑箱处理
 def sim_handler_hyperbolic(embed1, embed2, k, nums_threads):
-    print("sim_handler_hyperbolic begin...")
     assert embed1.requires_grad is False and embed2.requires_grad is False
     tasks = div_list(np.array(range(embed1.shape[0])), nums_threads)
     # results_list = list()
@@ -126,14 +120,12 @@ def sim_handler_hyperbolic(embed1, embed2, k, nums_threads):
     csls_sim_mat = csls_sim_mat.T - csls2
     del sim_matrix
     gc.collect()
-    print("sim_handler_hyperbolic end")
     return csls_sim_mat
 
 
 # TODO:被sim_handler_hyperbolic调用的计算双曲相似度的函数，内部逻辑不是很清楚，暂时当成黑箱处理
 # @ray.remote(num_cpus=1)
 def compute_hyperbolic_similarity(embeds1, embeds2):
-    print("compute_hyperbolic_similarity begin...")
     x1, y1 = embeds1.shape  # <class 'numpy.ndarray'>
     x2, y2 = embeds2.shape
     assert y1 == y2
@@ -145,7 +137,6 @@ def compute_hyperbolic_similarity(embeds1, embeds2):
         dist_vec = compute_hyperbolic_distances(embed1, embeds2)
         dist_vec_list.append(dist_vec)
     dis_mat = np.row_stack(dist_vec_list)  # (x1, x2)
-    print("compute_hyperbolic_similarity end.")
     return normalization(-dis_mat)
 
 
