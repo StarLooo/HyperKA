@@ -11,123 +11,60 @@ from src.hyperka.et_funcs.test_funcs import eval_type_hyperbolic
 from src.hyperka.hyperbolic.poincare import PoincareManifold
 
 
-class GATLayer(nn.Module):
-    def __init__(self, near_ents_adj, near_rels_adj, ents_near_ents_num, ents_near_rels_num, rels_near_ents_num,
-                 input_dim, output_dim, layer_id, poincare: PoincareManifold, has_bias: bool = True,
-                 activation: nn.Module = None, another_attention_mode: bool = False):
+class GCNLayer(nn.Module):
+    def __init__(self, adj, input_dim, output_dim, layer_id, poincare: PoincareManifold, has_bias: bool = True,
+                 activation: nn.Module = None):
         super().__init__()
         self.poincare = poincare
         self.has_bias = has_bias
         self.activation = activation
-        self.near_ents_adj = near_ents_adj
-        self.ents_near_ents_num = ents_near_ents_num
-        self.near_rels_adj = near_rels_adj
-        self.ents_near_rels_num = ents_near_rels_num
-        self.rels_near_ents_num = rels_near_ents_num
-        self.n_entities, self.n_rels = near_rels_adj.shape
+        self.adj = adj
         self.input_dim = input_dim
         self.output_dim = output_dim
         # 两个线性变换
         self.W_ent = nn.Parameter(
             nn.init.xavier_uniform_(
                 torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
-        self.W_rel = nn.Parameter(
-            nn.init.xavier_uniform_(
-                torch.empty(input_dim, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu())))
-        # attention method 2
-        if another_attention_mode:
-            self.w = nn.Parameter(
-                torch.rand(output_dim, 1, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         if has_bias:
             self.bias_vec = nn.Parameter(
                 torch.zeros(1, output_dim, dtype=torch.float64, requires_grad=True, device=ut.try_gpu()))
         else:
             self.register_parameter("bias_vec", None)
-        self.another_attention_mode = another_attention_mode
 
-    def forward(self, ents_embed_input: torch.Tensor, rels_embed_input: torch.Tensor, drop_rate: float = 0.0,
-                combine_rels_weight: float = 0.1):
+    def forward(self, ents_embed_input: torch.Tensor, drop_rate: float = 0.0, ):
         assert 0.0 <= drop_rate < 1.0
         # TODO:映射到欧氏空间
         ents_pre_sup_tangent = self.poincare.log_map_zero(ents_embed_input)
-        rels_pre_sup_tangent = self.poincare.log_map_zero(rels_embed_input)
         if drop_rate > 0.0:
             # TODO:这里作者的代码是*(1-drop_rate),但我觉得应该是/(1-drop_rate)才能使得drop之后期望保持不变
             # TODO: 不过貌似实际上并没有drop_out
             ents_pre_sup_tangent = F.dropout(ents_pre_sup_tangent, p=drop_rate, training=self.training) * (
                     1 - drop_rate)  # not scaled up
-            rels_pre_sup_tangent = F.dropout(rels_pre_sup_tangent, p=drop_rate, training=self.training) * (
-                    1 - drop_rate)  # not scaled up
         assert ents_pre_sup_tangent.shape[1] == self.W_ent.shape[0]
-        assert rels_pre_sup_tangent.shape[1] == self.W_rel.shape[0]
         ents_embed_mapped = torch.mm(ents_pre_sup_tangent, self.W_ent)
-        rels_embed_mapped = torch.mm(rels_pre_sup_tangent, self.W_rel)
-        rels_embed_origin = rels_pre_sup_tangent
 
         # 实体的邻域实体信息
-        # attention method 2
-        if self.another_attention_mode:
-            alpha_matrix = F.leaky_relu(torch.matmul(ents_embed_mapped.detach(), self.w)).t().expand(
-                (self.n_entities, self.n_entities)).sparse_mask(self.near_ents_adj)
-            alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
-            assert alpha_matrix.requires_grad is True
-        # attention method 1
-        else:
-            alpha_matrix = torch.matmul(ents_embed_mapped.detach(), ents_embed_mapped.detach().t()).sparse_mask(
-                self.near_ents_adj)
-            alpha_matrix = torch.sparse.softmax(alpha_matrix, dim=1)
-            assert alpha_matrix.requires_grad is False
-        ents_near_ents_embeddings = torch.sparse.mm(alpha_matrix, ents_embed_mapped)
+        ents_near_ents_embeddings = torch.sparse.mm(self.adj, ents_embed_mapped)
         ents_near_ents_embeddings = self.poincare.hyperbolic_projection(
             self.poincare.exp_map_zero(ents_near_ents_embeddings))
 
-        # 实体的邻域边信息
-        mapped_edge_embeddings = rels_embed_mapped[self.near_rels_adj.values()]
-        ents_near_rels_embed_adj = torch.sparse_coo_tensor(indices=self.near_rels_adj.indices(),
-                                                           values=mapped_edge_embeddings,
-                                                           size=(self.n_entities, self.n_rels, self.output_dim),
-                                                           device=ut.try_gpu())
-        ents_near_rels_embeddings = torch.sparse.sum(ents_near_rels_embed_adj, dim=1).to_dense()
-        ents_near_rels_embeddings = ents_near_rels_embeddings / self.ents_near_rels_num.unsqueeze(1)
-        ents_near_rels_embeddings = self.poincare.hyperbolic_projection(
-            self.poincare.exp_map_zero(ents_near_rels_embeddings))
-
-        # 边的邻域边信息，通过实体作为中转间接传递
-        edge_embeddings = rels_embed_origin[self.near_rels_adj.values()]
-        rels_near_ens_embed_adj = torch.sparse_coo_tensor(indices=self.near_rels_adj.indices(),
-                                                          values=edge_embeddings,
-                                                          size=(self.n_entities, self.n_rels, self.output_dim),
-                                                          device=ut.try_gpu()).transpose(0, 1)
-        rels_near_rels_embeddings = torch.sparse.sum(rels_near_ens_embed_adj, dim=1).to_dense()
-        rels_near_rels_embeddings = rels_near_rels_embeddings / self.rels_near_ents_num.unsqueeze(1)
-        rels_near_rels_embeddings = self.poincare.hyperbolic_projection(
-            self.poincare.exp_map_zero(rels_near_rels_embeddings))
-
-        assert ents_near_rels_embeddings.shape == ents_near_ents_embeddings.shape == ents_embed_input.shape
-        assert rels_near_rels_embeddings.shape == rels_embed_input.shape
-
-        # TODO: 结合实体消息传递和关系消息传递
-        ents_near_embeddings_output = self.poincare.hyperbolic_projection(
-            self.poincare.mobius_addition(ents_near_ents_embeddings, combine_rels_weight * ents_near_rels_embeddings))
-        rels_near_embeddings_output = rels_near_rels_embeddings
-        # TODO: 是否还需要bias
         if self.has_bias:
             bias_vec = self.poincare.hyperbolic_projection(self.poincare.exp_map_zero(self.bias_vec))
-            ents_near_embeddings_output = self.poincare.mobius_addition(ents_near_embeddings_output, bias_vec)
+            ents_near_embeddings_output = self.poincare.mobius_addition(ents_near_ents_embeddings, bias_vec)
             ents_near_embeddings_output = self.poincare.hyperbolic_projection(ents_near_embeddings_output)
+        else:
+            ents_near_embeddings_output = ents_near_ents_embeddings
+
         if self.activation is not None:
             ents_near_embeddings_output = self.activation(self.poincare.log_map_zero(ents_near_embeddings_output))
             ents_near_embeddings_output = self.poincare.hyperbolic_projection(
                 self.poincare.exp_map_zero(ents_near_embeddings_output))
-            rels_near_embeddings_output = self.activation(self.poincare.log_map_zero(rels_near_embeddings_output))
-            rels_near_embeddings_output = self.poincare.hyperbolic_projection(
-                self.poincare.exp_map_zero(rels_near_embeddings_output))
-        return ents_near_embeddings_output, rels_near_embeddings_output
+
+        return ents_near_embeddings_output
 
 
-class HyperKA(nn.Module):
-    def __init__(self, insnet, onto, instype, ins_near_ents_graph, ins_near_rels_graph, onto_near_ents_graph,
-                 onto_near_rels_graph, args):
+class Origin_HyperKA(nn.Module):
+    def __init__(self, insnet, onto, instype, ins_adj, onto_adj, args):
         super().__init__()
         self.args = args
         self.poincare = PoincareManifold()
@@ -172,16 +109,8 @@ class HyperKA(nn.Module):
 
         self.test_all_ins_types = instype[1][2]
 
-        # # list(zip(*--))这种写法详见torch api: https://pytorch.org/docs/1.9.0/sparse.html#sparse-uncoalesced-coo-docs
-        # self.ins_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*ins_adj[0])), values=ins_adj[1],
-        #                                            size=ins_adj[2]).coalesce()
-        # self.onto_adj_mat = torch.sparse_coo_tensor(indices=list(zip(*onto_adj[0])), values=onto_adj[1],
-        #                                             size=onto_adj[2]).coalesce()
-        self.ins_near_ents_adj, self.ins_ents_near_ents_num = ins_near_ents_graph
-        self.ins_near_rels_adj, self.ins_ents_near_rels_num, self.ins_rels_near_ens_num = ins_near_rels_graph
-
-        self.onto_near_ents_adj, self.onto_ents_near_ents_num = onto_near_ents_graph
-        self.onto_near_rels_adj, self.onto_ents_near_rels_num, self.onto_rels_near_ents_num = onto_near_rels_graph
+        self.ins_adj = ins_adj
+        self.onto_adj = onto_adj
 
         self._generate_base_parameters()
         self.all_named_train_parameters_list = []
@@ -193,47 +122,35 @@ class HyperKA(nn.Module):
         self.ins_layer_num = args.ins_layer_num
         self.onto_layer_num = args.onto_layer_num
         self.ins_ent_embeddings_output_list = list()
-        self.ins_rel_embeddings_output_list = list()
         self.onto_ent_embeddings_output_list = list()
-        self.onto_rel_embeddings_output_list = list()
         # ************************* instance gnn ***************************
-        self.ins_gat_layers_list = []
+        self.ins_gcn_layers_list = []
         for ins_layer_id in range(self.ins_layer_num):
             activation = self.activation
             if ins_layer_id == self.ins_layer_num - 1:
                 activation = None
-            gat_layer = GATLayer(near_ents_adj=self.ins_near_ents_adj, near_rels_adj=self.ins_near_rels_adj,
-                                 ents_near_ents_num=self.ins_ents_near_ents_num,
-                                 ents_near_rels_num=self.ins_ents_near_rels_num,
-                                 rels_near_ents_num=self.ins_rels_near_ens_num, input_dim=self.args.ins_dim,
-                                 output_dim=self.args.ins_dim, layer_id=ins_layer_id, poincare=self.poincare,
-                                 activation=activation)
-            self.ins_gat_layers_list.append(gat_layer)
-            for name, param in gat_layer.named_parameters():
+            gcn_layer = GCNLayer(adj=self.ins_adj, input_dim=self.args.ins_dim, output_dim=self.args.ins_dim,
+                                 layer_id=ins_layer_id, poincare=self.poincare, activation=activation)
+            self.ins_gcn_layers_list.append(gcn_layer)
+            for name, param in gcn_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
         # ************************* ontology gnn ***************************
-        self.onto_gat_layers_list = []
+        self.onto_gcn_layers_list = []
         for onto_layer_id in range(self.onto_layer_num):
             activation = self.activation
             if onto_layer_id == self.onto_layer_num - 1:
                 activation = None
-            gat_layer = GATLayer(near_ents_adj=self.onto_near_ents_adj, near_rels_adj=self.onto_near_rels_adj,
-                                 ents_near_ents_num=self.onto_ents_near_ents_num,
-                                 ents_near_rels_num=self.onto_ents_near_rels_num,
-                                 rels_near_ents_num=self.onto_rels_near_ents_num,
-                                 input_dim=self.args.onto_dim, output_dim=self.args.onto_dim, layer_id=onto_layer_id,
-                                 poincare=self.poincare, activation=activation)
-            self.onto_gat_layers_list.append(gat_layer)
-            for name, param in gat_layer.named_parameters():
+            gcn_layer = GCNLayer(adj=self.onto_adj, input_dim=self.args.onto_dim, output_dim=self.args.onto_dim,
+                                 layer_id=onto_layer_id, poincare=self.poincare, activation=activation)
+            self.onto_gcn_layers_list.append(gcn_layer)
+            for name, param in gcn_layer.named_parameters():
                 self.all_named_train_parameters_list.append((name, param))
                 self.all_train_parameters_list.append(param)
 
         self.triple_optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
         self.mapping_optimizer = torch.optim.Adam(self.all_train_parameters_list, lr=self.args.learning_rate)
-
-        self.burn_in = 0
 
     # 生成初始化的基本参数
     def _generate_base_parameters(self):
@@ -298,52 +215,33 @@ class HyperKA(nn.Module):
         self.link_neg_t = torch.tensor(link_neg_t, dtype=torch.long, device=ut.try_gpu())
 
     # 图注意力
-    def _graph_attention(self):
+    def _graph_convolution(self):
         self.ins_ent_embeddings_output_list = list()  # reset
-        self.ins_rel_embeddings_output_list = list()  # reset
         self.onto_ent_embeddings_output_list = list()  # reset
-        self.onto_rel_embeddings_output_list = list()  # reset
 
         # ************************* instance gnn ***************************
         # In this case, we assume that the initialized embeddings are in the hyperbolic space.
         ins_ent_embeddings_output = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
-        ins_rel_embeddings_output = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
         self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
-        self.ins_rel_embeddings_output_list.append(ins_rel_embeddings_output)
         for ins_layer_id in range(self.ins_layer_num):
-            gat_layer = self.ins_gat_layers_list[ins_layer_id]
-            ins_ent_near_embeddings_output, ins_rel_near_embeddings_output = gat_layer.forward(
-                ins_ent_embeddings_output, ins_rel_embeddings_output, combine_rels_weight=self.args.combine_rels_weight)
+            gcn_layer = self.ins_gcn_layers_list[ins_layer_id]
+            ins_ent_near_embeddings_output = gcn_layer.forward(ins_ent_embeddings_output)
             ins_ent_embeddings_output = self.poincare.mobius_addition(ins_ent_near_embeddings_output,
                                                                       self.ins_ent_embeddings_output_list[-1])
-
-            ins_rel_embeddings_output = self.poincare.mobius_addition(ins_rel_near_embeddings_output,
-                                                                      self.ins_rel_embeddings_output_list[-1])
             ins_ent_embeddings_output = self.poincare.hyperbolic_projection(ins_ent_embeddings_output)
-            ins_rel_embeddings_output = self.poincare.hyperbolic_projection(ins_rel_embeddings_output)
             self.ins_ent_embeddings_output_list.append(ins_ent_embeddings_output)
-            self.ins_rel_embeddings_output_list.append(ins_rel_embeddings_output)
 
         # ************************* ontology gnn ***************************
         # In this case, we assume that the initialized embeddings are in the hyperbolic space.
         onto_ent_embeddings_output = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
-        onto_rel_embeddings_output = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
         self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
-        self.onto_rel_embeddings_output_list.append(onto_rel_embeddings_output)
         for onto_layer_id in range(self.onto_layer_num):
-            gat_layer = self.onto_gat_layers_list[onto_layer_id]
-            onto_ent_near_embeddings_output, onto_rel_near_embeddings_output = gat_layer.forward(
-                onto_ent_embeddings_output, onto_rel_embeddings_output,
-                combine_rels_weight=self.args.combine_rels_weight)
+            gcn_layer = self.onto_gcn_layers_list[onto_layer_id]
+            onto_ent_near_embeddings_output = gcn_layer.forward(onto_ent_embeddings_output)
             onto_ent_embeddings_output = self.poincare.mobius_addition(onto_ent_near_embeddings_output,
                                                                        self.onto_ent_embeddings_output_list[-1])
-
-            onto_rel_embeddings_output = self.poincare.mobius_addition(onto_rel_near_embeddings_output,
-                                                                       self.onto_rel_embeddings_output_list[-1])
             onto_ent_embeddings_output = self.poincare.hyperbolic_projection(onto_ent_embeddings_output)
-            onto_rel_embeddings_output = self.poincare.hyperbolic_projection(onto_rel_embeddings_output)
             self.onto_ent_embeddings_output_list.append(onto_ent_embeddings_output)
-            self.onto_rel_embeddings_output_list.append(onto_rel_embeddings_output)
 
     # 黎曼梯度下降，Adam优化
     # TODO:不知道这里写的对不对
@@ -352,14 +250,14 @@ class HyperKA(nn.Module):
             torch.cuda.empty_cache()
         optimizer.zero_grad()
         loss.backward()
-        # 不知道这样间接计算Riemannian梯度并重新赋值给参数的.grad是否合适
         for name, train_param in named_train_params:
             if train_param.grad is None:
                 # print("skip")
                 continue
             if "emb" in name:
                 # print("hyperbolic param:", name)
-                riemannian_grad = train_param.grad * (1. - torch.norm(train_param, dim=1).reshape((-1, 1)) ** 2) ** 2 / 4
+                riemannian_grad = train_param.grad * (
+                        1. - torch.norm(train_param, dim=1).reshape((-1, 1)) ** 2) ** 2 / 4
                 train_param.grad = riemannian_grad
         optimizer.step()
 
@@ -387,29 +285,12 @@ class HyperKA(nn.Module):
         return mapping_loss
 
     # 根据triple loss优化参数
-    def optimize_triple_loss(self, triple_pos_neg_batch, is_attention=False):
-        is_attention = False
-        if is_attention:
-            self._graph_attention()
-            ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]
-            onto_ent_embeddings = self.onto_ent_embeddings_output_list[-1]
-            if self.args.combine:
-                ins_ent_embeddings = self.poincare.hyperbolic_projection(
-                    self.poincare.mobius_addition(ins_ent_embeddings, self.ins_ent_embeddings_output_list[0]))
-                onto_ent_embeddings = self.poincare.hyperbolic_projection(
-                    self.poincare.mobius_addition(onto_ent_embeddings, self.onto_ent_embeddings_output_list[0]))
-            ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
-            onto_rel_embeddings = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
-            # print("output ins_ent_embeddings:", ins_ent_embeddings)
-            # print("input ins_ent_embeddings:", self.ins_ent_embeddings)
-            # print("input ins_rel_embeddings:", ins_rel_embeddings)
-            # print("self.ins_rel_embeddings_output_list[-1]", self.ins_rel_embeddings_output_list[-1])
-            # os.system("pause")
-        else:
-            ins_ent_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
-            ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
-            onto_ent_embeddings = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
-            onto_rel_embeddings = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
+    def optimize_triple_loss(self, triple_pos_neg_batch):
+
+        ins_ent_embeddings = self.poincare.hyperbolic_projection(self.ins_ent_embeddings)
+        ins_rel_embeddings = self.poincare.hyperbolic_projection(self.ins_rel_embeddings)
+        onto_ent_embeddings = self.poincare.hyperbolic_projection(self.onto_ent_embeddings)
+        onto_rel_embeddings = self.poincare.hyperbolic_projection(self.onto_rel_embeddings)
 
         self._trans_triple_pos_neg_batch(triple_pos_neg_batch)
 
@@ -441,7 +322,7 @@ class HyperKA(nn.Module):
 
     # 根据mapping loss优化参数
     def optimize_mapping_loss(self, mapping_pos_neg_batch):
-        self._graph_attention()
+        self._graph_convolution()
 
         # TODO:这里是否需要赋值给self.ins_ent_embeddings(Parameter)
         ins_ent_embeddings = self.ins_ent_embeddings_output_list[-1]

@@ -66,6 +66,53 @@ def get_model(folder, kge_model, args):
     return source_triples, target_triples, model
 
 
+# 获取模型
+def get_origin_model(folder, kge_model, args):
+    print("data folder:", folder)
+
+    print("read_input begin...")
+    if "15" in folder:
+        read_func = ut.read_dbp15k_input
+    else:
+        read_func = ut.read_other_input
+
+    source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents, \
+    ref_source_aligned_ents, ref_target_aligned_ents, total_ents_num, total_rels_num = read_func(folder)
+
+    # inked_entities中的ent为已经对齐的ent
+    linked_entities = set(
+        sup_source_aligned_ents + sup_target_aligned_ents + ref_source_aligned_ents + ref_target_aligned_ents)
+
+    # TODO: 增强triples中的数据
+    print("enhance triples begin:")
+    enhanced_source_triples_list, enhanced_target_triples_list = enhance_triples(source_triples, target_triples,
+                                                                                 sup_source_aligned_ents,
+                                                                                 sup_target_aligned_ents)
+    print("enhance triples finished")
+
+    # 删除掉单独存在于source KG或target KG中而没有与之对齐的实体所在的三元组
+    all_triples_list = source_triples.triple_list + target_triples.triple_list + \
+                       enhanced_source_triples_list + enhanced_target_triples_list
+    # TODO: 暂时先跳过remove_unlinked_triples()这一步
+    # all_aligned_triples_list = remove_unlinked_triples(all_triples_list=all_triples_list,
+    #                                                    linked_entities=linked_entities)
+    all_aligned_triples_list = all_triples_list
+
+    # 这里应该与et里是一样的
+    adj = generate_adjacent_graph(total_ents_num=total_ents_num, total_rels_num=total_rels_num,
+                                  triples=all_aligned_triples_list, origin=True)
+
+    print("adj shape:", adj.shape)
+    print("generate_adjacent_graph finished\n")
+
+    model = kge_model(total_ents_num, total_rels_num, sup_source_aligned_ents, sup_target_aligned_ents,
+                      ref_source_aligned_ents, ref_target_aligned_ents, source_triples.ent_list,
+                      target_triples.ent_list, adj, args)
+
+    # 注意这里的source_triples和target_triples并没有去掉无法对齐的triples
+    return source_triples, target_triples, model
+
+
 # 数据增强
 def enhance_triples(source_triples, target_triples, sup_source_aligned_ents, sup_target_aligned_ents):
     assert len(sup_source_aligned_ents) == len(sup_target_aligned_ents)

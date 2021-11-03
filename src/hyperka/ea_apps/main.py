@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import argparse
 import ast
-import os
 
 import torch
 
 from src.hyperka.ea_apps.model import HyperKA
-from src.hyperka.ea_funcs.train_funcs import get_model, train_k_epochs, semi_alignment
+from src.hyperka.ea_apps.origin_model import Origin_HyperKA
+from src.hyperka.ea_funcs.train_funcs import get_model, train_k_epochs, semi_alignment, get_origin_model
 
 # import ray
 
@@ -21,14 +21,16 @@ g = 1024 * 1024
 # ray.init()
 
 parser = argparse.ArgumentParser(description='HyperKA_EA')
+# parser.add_argument('--input', type=str, default='./dataset/dbp15k/zh_en/mtranse/0_3/')  # 路径
+# parser.add_argument('--output', type=str, default='./output/results/')  # 路径
 parser.add_argument('--input', type=str, default='../../../dataset/dbp15k/zh_en/mtranse/0_3/')  # 路径
 parser.add_argument('--output', type=str, default='../../../output/results/')  # 路径
 parser.add_argument('--dim', type=int, default=75)  # 嵌入向量的维度
-parser.add_argument('--gat_layer_num', type=int, default=2)  # gat层数
+parser.add_argument('--layer_num', type=int, default=2)  # 层数
 parser.add_argument('--neg_mapping_margin', type=float, default=0.4)  # 计算mapping loss的margin
 parser.add_argument('--neg_triple_margin', type=float, default=0.1)  # 计算triple loss的margin
 parser.add_argument('--learning_rate', type=float, default=0.0002)  # 学习率
-parser.add_argument('--batch_size', type=int, default=5000)  # TODO: batch_size，本来是20000，但是怕太大了
+parser.add_argument('--batch_size', type=int, default=20000)  # TODO: batch_size，本来是20000，但是怕太大了
 parser.add_argument('--epochs', type=int, default=100)  # TODO: epochs，本来是800，但是怕太多了
 parser.add_argument('--drop_rate', type=float, default=0.2)  # 丢弃率
 parser.add_argument('--epsilon4triple', type=float, default=0.98)  # TODO: 这个参数的含义不是很清楚
@@ -48,6 +50,7 @@ parser.add_argument('--is_bp', type=ast.literal_eval, default=False)  # 是否�
 # parser.add_argument('--heuristic', type=ast.literal_eval, default=True)
 parser.add_argument('--heuristic', type=ast.literal_eval, default=False)
 parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否结合第0层和最后一层的嵌入
+parser.add_argument('--use_origin_model', type=ast.literal_eval, default=True)  # 是否采用原来的图卷积模型
 
 # TODO:由于不明白bootstrapping，所以暂且只修改了不进行bootstrapping下的代码
 if __name__ == '__main__':
@@ -58,7 +61,15 @@ if __name__ == '__main__':
     print()
 
     print("get model...")
-    source_triples, target_triples, model = get_model(args.input, HyperKA, args)
+    print("get model finished\n")
+
+    print("get model...")
+    if args.use_origin_model:
+        print("use origin HyperKA GCN model:")
+        source_triples, target_triples, model = get_origin_model(args.input, Origin_HyperKA, args)
+    else:
+        print("use new HyperKA GAT model:")
+        source_triples, target_triples, model = get_model(args.input, HyperKA, args)
     print("get model finished\n")
 
     # hits1, old_hits1 = None, None
@@ -77,9 +88,9 @@ if __name__ == '__main__':
         train_k_epochs(model, source_triples, target_triples, epochs_each_iteration, args, trunc_source_ent_num,
                        iteration)
         if iteration % args.test_interval == 0:
-            print("begin test")
             model.test(k=0)
-            print("test finish")
         if iteration >= args.start_bp and args.is_bp:
             semi_alignment(model, args)
+        if iteration % (2 * args.test_interval) == 0:
+            model.test(k=10)
     # model.test(k=10)

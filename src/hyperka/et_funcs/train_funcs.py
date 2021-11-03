@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import math
+import os
 import random
 import time
 
@@ -42,6 +43,34 @@ def get_model(folder, kge_model, args):
     return insnet[0], onto[0], model
 
 
+# 获得修改前的HyperKA模型
+def get_origin_model(folder, kge_model, args):
+    print("data folder:", folder)
+
+    print("read_input begin...")
+    read_func = ut.read_input  # 用于读取输入的函数
+    # insnet和onto的结构如下：
+    # [all_ids_triples, train_ids_triples_set, test_ids_triples_set,
+    # total_ents_num, total_rels_num, total_triples_num]
+    # instype的结构如下：
+    # [[train_heads_ids_list, train_tails_ids_list],
+    # [test_heads_ids_list, test_tails_ids_list, test_head_tails_ids_list]]
+    insnet, onto, instype = read_func(folder)
+    print("read_input finished\n")
+
+    print("generate_adjacent_graph begin...")
+    ins_adj = generate_adjacent_graph(total_ents_num=insnet[3], total_rels_num=insnet[4], triples=insnet[0].triples,
+                                      origin=True)
+    onto_adj = generate_adjacent_graph(total_ents_num=onto[3], total_rels_num=onto[4], triples=onto[0].triples,
+                                       origin=True)
+    print("ins adj shape:", ins_adj.shape)
+    print("onto adj shape:", ins_adj.shape)
+
+    model = kge_model(insnet, onto, instype, ins_adj, onto_adj, args)
+
+    return insnet[0], onto[0], model
+
+
 # 训练k个epoch
 def train_k_epochs(model, ins_triples, onto_triples, k, args, truncated_ins_num, truncated_onto_num):
     neighbours_of_ins_triples, neighbours_of_onto_triples = dict(), dict()
@@ -77,7 +106,6 @@ def train_1_epoch(model, ins_triples, onto_triples, args,
     # 一个epoch需要跑steps步，每一步跑batch_size大小的数据
     steps = math.ceil(ins_triples.triples_num / args.batch_size)
     # print("steps per epoch:", steps)
-    steps = 1
     link_batch_size = math.ceil(len(model.train_instype_head) / steps)
     for step in range(1, steps + 1):
         # if step % 5 == 1:

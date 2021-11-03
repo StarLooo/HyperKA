@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-
 import numpy as np
 import scipy.sparse as sp
 import time
@@ -85,12 +83,11 @@ def preprocess_adjacent_graph(adjacent_graph):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     # TODO: 为什么这里要加上一个单位阵
     processed_adjacent_graph = normalize_adj(adjacent_graph + sp.eye(adjacent_graph.shape[0]))
-    # processed_adjacent_graph = adjacent_graph  # GAT暂时先不做处理
     return sparse_to_tuple(processed_adjacent_graph)
 
 
 # 根据triples生成对应的无权无向图,generate_graph的特例
-def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
+def generate_origin_graph(total_ent_num, triples):
     start = time.time()
     edges = dict()
     for tripe in triples:
@@ -117,17 +114,14 @@ def generate_no_weighted_undirected_adjacent_graph(total_ent_num, triples):
     data_len = len(row)
     data = np.ones(data_len)
 
-    # graph = torch.sparse_coo_tensor(indices=[row, col], values=data, size=(total_ent_num, total_ent_num))
-    # print("graph:", graph)
-    # print(graph.is_coalesced())
-    # graph = graph.coalesce()
-    # print("graph:", graph)
-    # os.system("pause")
-
     # 进行稀疏化表示
     adjacent_graph = sp.coo_matrix((data, (row, col)), shape=(total_ent_num, total_ent_num))
     # 经过preprocess_adjacent_graph()后adjacent_graph已经是用tuple表示的了
-    adjacent_graph = preprocess_adjacent_graph(adjacent_graph)
+    indices, values, size = preprocess_adjacent_graph(adjacent_graph)
+
+    adjacent_graph = torch.sparse_coo_tensor(indices=list(zip(*indices)), values=values, size=size, dtype=torch.float64,
+                                             device=try_gpu(),
+                                             requires_grad=False).coalesce()
 
     end = time.time()
     print('generating KG costs time: {:.4f}s'.format(end - start))
@@ -163,6 +157,7 @@ def generate_graph(total_ents_num, total_rels_num, triples):
             near_rels[t] = set()
         near_rels[h].add(r)
         near_rels[t].add(r)
+    assert len(near_ents.keys()) == len(near_ents.keys()) == total_ents_num
 
     near_ents_rows_list, near_ents_cols_list, near_ents_values_list = list(), list(), list()
     near_rels_rows_list, near_rels_cols_list, near_rels_values_list = list(), list(), list()
@@ -198,10 +193,10 @@ def generate_graph(total_ents_num, total_rels_num, triples):
     near_rels_graph = (near_rels_adj, ents_near_rels_num, rels_near_ents_num)
 
     # print("near_ents_adj:", near_ents_adj)
-    # print("ents_near_ents_num:", ents_near_ents_num, ents_near_ents_num.shape, (ents_near_ents_num == 0).sum())
+    # print("ents_near_ents_num:", ents_near_ents_num, ents_near_ents_num.shape)
     # print("near_rels_adj:", near_rels_adj)
-    # print("ents_near_rels_num:", ents_near_rels_num, ents_near_rels_num.shape, (ents_near_rels_num == 0).sum())
-    # print("rels_near_ents_num:", rels_near_ents_num, rels_near_ents_num.shape, (rels_near_ents_num == 0).sum())
+    # print("ents_near_rels_num:", ents_near_rels_num, ents_near_rels_num.shape)
+    # print("rels_near_ents_num:", rels_near_ents_num, rels_near_ents_num.shape)
     # os.system("pause")
 
     end = time.time()
@@ -211,9 +206,11 @@ def generate_graph(total_ents_num, total_rels_num, triples):
 
 
 # 根据triples生成对应的邻接图
-def generate_adjacent_graph(total_ents_num, total_rels_num, triples):
-    # return generate_no_weighted_undirected_adjacent_graph(total_ents_num, triples)
-    return generate_graph(total_ents_num, total_rels_num, triples)
+def generate_adjacent_graph(total_ents_num, total_rels_num, triples, origin=False):
+    if origin:
+        return generate_origin_graph(total_ents_num, triples)
+    else:
+        return generate_graph(total_ents_num, total_rels_num, triples)
 
 # These may be useless:
 # def generate_adj_dict(total_e_num, triples):

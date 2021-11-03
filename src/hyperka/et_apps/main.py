@@ -3,7 +3,8 @@ import argparse
 import ast
 import torch
 from src.hyperka.et_apps.model import HyperKA
-from src.hyperka.et_funcs.train_funcs import get_model, train_k_epochs
+from src.hyperka.et_apps.origin_model import Origin_HyperKA
+from src.hyperka.et_funcs.train_funcs import get_model, train_k_epochs, get_origin_model
 
 parser = argparse.ArgumentParser(description='HyperKA_ET')
 # parser.add_argument('--input', type=str, default='./dataset/joie/yago/')  # 路径
@@ -27,6 +28,8 @@ parser.add_argument('--combine', type=ast.literal_eval, default=True)  # 是否�
 parser.add_argument('--combine_rels_weight', type=float, default=0.1)  # 结合实体消息传递和关系消息传递时的关系消息传递的权重
 parser.add_argument('--ent_top_k', type=list, default=[1, 3, 5, 10])  # 用作评价指标的预测列表的下标
 parser.add_argument('--nums_threads', type=int, default=1)  # TODO: 多线程数，这里本来默认值为8，但在本机上不支持，所以直接改为1
+parser.add_argument('--use_origin_model', type=ast.literal_eval, default=True)  # 是否采用原来的图卷积模型
+# parser.add_argument('--use_origin_model', type=ast.literal_eval, default=False)  # 是否采用原来的图卷积模型
 
 if __name__ == '__main__':
     torch.multiprocessing.set_start_method("spawn")
@@ -35,7 +38,12 @@ if __name__ == '__main__':
     print(args)
 
     print("get model...")
-    ins_triples, onto_triples, model = get_model(args.input, HyperKA, args)
+    if args.use_origin_model:
+        print("use origin HyperKA GCN model:")
+        ins_triples, onto_triples, model = get_origin_model(args.input, Origin_HyperKA, args)
+    else:
+        print("use new HyperKA GAT model:")
+        ins_triples, onto_triples, model = get_model(args.input, HyperKA, args)
     print("get model finished\n")
 
     # TODO:truncated_ins_num和truncated_onto_num的作用不是很清楚

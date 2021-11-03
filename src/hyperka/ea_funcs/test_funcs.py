@@ -99,6 +99,8 @@ def compute_hyperbolic_similarity_single(sub_embed1, embed2):
 # TODO：用于bootstrapping, 被semi_alignment函数调用，内部逻辑不是很清楚，暂时当成黑箱处理
 def sim_handler_hyperbolic(embed1, embed2, k, nums_threads):
     assert embed1.requires_grad is False and embed2.requires_grad is False
+    embed1 = embed1.cpu()
+    embed2 = embed2.cpu()
     tasks = div_list(np.array(range(embed1.shape[0])), nums_threads)
     # results_list = list()
     # for task in tasks:
@@ -170,7 +172,8 @@ def eval_alignment_mul(sim_mat, top_k, nums_threads, mess=""):
     for task in tasks:
         res = cal_rank(task, sim_mat[task, :], top_k)
         results.append(res)
-    for res in ray.get(results):
+    # for res in ray.get(results):
+    for res in results:
         mean, mrr, num = res
         t_mean += mean
         t_mrr += mrr
@@ -187,7 +190,6 @@ def eval_alignment_mul(sim_mat, top_k, nums_threads, mess=""):
 
 
 def cal_rank_multi_embed(frags, dic, sub_embed, embed, top_k):
-    print("cal_rank_multi_embed begin...")
     mean = 0
     mrr = 0
     num = np.array([0 for k in top_k])
@@ -235,22 +237,18 @@ def cal_rank_multi_embed(frags, dic, sub_embed, embed, top_k):
 
     del sim_mat
     gc.collect()
-    print("cal_rank_multi_embed end.")
     return mean, mrr, num, mean1, mrr1, num1, prec_set
 
 
 # @ray.remote(num_cpus=1)
 def cal_csls_neighbor_sim(sim_mat, k):
-    print("cal_csls_neighbor_sim begin...")
     sorted_mat = -np.partition(-sim_mat, k + 1, axis=1)  # -np.sort(-sim_mat1)
     nearest_k = sorted_mat[:, 0:k]
     sim_values = np.mean(nearest_k, axis=1)
-    print("cal_csls_neighbor_sim end.")
     return sim_values
 
 
 def csls_neighbor_sim(sim_mat, k, nums_threads):
-    print("csls_neighbor_sim begin...")
     tasks = div_list(np.array(range(sim_mat.shape[0])), nums_threads)
     results = list()
     for task in tasks:
@@ -264,5 +262,4 @@ def csls_neighbor_sim(sim_mat, k, nums_threads):
         else:
             sim_values = np.append(sim_values, val)
     assert sim_values.shape[0] == sim_mat.shape[0]
-    print("csls_neighbor_sim end.")
     return sim_values
